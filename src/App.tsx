@@ -1,8 +1,8 @@
 import { Session, User } from "@supabase/supabase-js";
 import {
   BookOpen,
-  CalendarDays,
   Check,
+  Cloud,
   Download,
   Image,
   LogOut,
@@ -17,7 +17,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSpeechRecognition } from "./hooks/useSpeechRecognition";
-import { dateMonthsAgo, dateYearsAgo, greeting, isoToday, longDate, savedDateTime, themeForTime } from "./lib/date";
+import { dateMonthsAgo, dateYearsAgo, greeting, isoToday, longDate, themeForTime } from "./lib/date";
 import { hasSupabaseConfig, supabase } from "./lib/supabase";
 import type { AppIssue, EntryInsight, InsightCard, JournalEntry, SaveState } from "./types";
 
@@ -32,10 +32,12 @@ const emptyInsight: EntryInsight = {
 };
 
 const draftKeyFor = (entryId: string) => `lumora-draft-${entryId}`;
+const welcomeSeenKey = "mangdiary-welcome-seen";
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [booting, setBooting] = useState(true);
+  const [welcomeSeen, setWelcomeSeen] = useState(() => sessionStorage.getItem(welcomeSeenKey) === "true");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -51,9 +53,15 @@ export function App() {
     return () => data.subscription.unsubscribe();
   }, []);
 
+  function dismissWelcome() {
+    sessionStorage.setItem(welcomeSeenKey, "true");
+    setWelcomeSeen(true);
+  }
+
   if (booting) return <Splash />;
   if (!hasSupabaseConfig) return import.meta.env.DEV ? <LocalPreviewApp /> : <MissingConfig />;
-  if (!session) return <AuthScreen />;
+  if (!session) return <AuthScreen onStartedSignIn={dismissWelcome} />;
+  if (!welcomeSeen) return <WelcomeScreen user={session.user} onContinue={dismissWelcome} />;
   return <JournalApp user={session.user} />;
 }
 
@@ -187,7 +195,7 @@ function LocalPreviewApp() {
               <div className="timeline-list">
                 {filteredPreviewEntries.map((item) => (
                   <button className="timeline-item active" key={item.date} type="button" onClick={() => setTimelineOpen(false)}>
-                    <CalendarDays size={18} />
+                    <Cloud className="timeline-cloud" size={18} />
                     <span>{item.title}</span>
                     <small>{item.summary}</small>
                   </button>
@@ -230,13 +238,14 @@ function LocalPreviewApp() {
   );
 }
 
-function AuthScreen() {
+function AuthScreen({ onStartedSignIn }: { onStartedSignIn: () => void }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function signInWithGoogle() {
     setLoading(true);
     setError("");
+    onStartedSignIn();
     const { error: authError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: window.location.origin },
@@ -248,7 +257,8 @@ function AuthScreen() {
   }
 
   return (
-    <main className="app-shell theme-morning">
+    <main className="app-shell theme-morning welcome-shell">
+      <WelcomeBackdrop />
       <motion.section
         className="auth-panel welcome-panel"
         initial={{ opacity: 0, y: 16 }}
@@ -261,7 +271,12 @@ function AuthScreen() {
         </div>
         <span className="welcome-kicker">Private AI journal</span>
         <h1>MangDiary</h1>
-        <p>Welcome. Sign in with Google so every diary entry stays tied to your own private account.</p>
+        <p>Store your dreams, capture daily memories, and let AI turn each entry into gentle insight you can revisit over time.</p>
+        <div className="welcome-value-grid" aria-label="MangDiary features">
+          <WelcomeValue icon={<Moon />} title="Dream Library" body="Save dreams the moment you wake and keep them in your private account." />
+          <WelcomeValue icon={<Sparkles />} title="Daily Analysis" body="Generate clean AI insight cards for dreams, moods, symbols, and themes." />
+          <WelcomeValue icon={<BookOpen />} title="Pattern Memory" body="Look back across days, weeks, and months to notice what keeps returning." />
+        </div>
         <div className="welcome-actions">
           <button className="google-button" type="button" onClick={signInWithGoogle} disabled={loading}>
             <span className="google-g">G</span>
@@ -272,6 +287,61 @@ function AuthScreen() {
         <small>Your entries are saved under your authenticated Supabase user ID.</small>
       </motion.section>
     </main>
+  );
+}
+
+function WelcomeScreen({ user, onContinue }: { user: User; onContinue: () => void }) {
+  return (
+    <main className="app-shell theme-morning welcome-shell">
+      <WelcomeBackdrop />
+      <motion.section
+        className="auth-panel welcome-panel"
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.45 }}
+      >
+        <div className="welcome-mark">
+          <BookOpen className="brand-mark" />
+          <Sparkles />
+        </div>
+        <span className="welcome-kicker">Welcome back</span>
+        <h1>MangDiary</h1>
+        <p>Your private dream and diary space is ready. Open it to write, analyze, and revisit your inner patterns.</p>
+        <div className="welcome-value-grid" aria-label="MangDiary features">
+          <WelcomeValue icon={<Moon />} title="Dream Library" body="Your saved dreams stay connected to your own account." />
+          <WelcomeValue icon={<Sparkles />} title="Daily Analysis" body="Reflect on today's entry with AI insight cards." />
+          <WelcomeValue icon={<BookOpen />} title="Pattern Memory" body="Review weekly and monthly themes as your diary grows." />
+        </div>
+        <div className="welcome-actions">
+          <button className="google-button" type="button" onClick={onContinue}>
+            Open diary
+          </button>
+        </div>
+        <small>{user.email ? `Signed in as ${user.email}` : "Signed in with Google"}</small>
+      </motion.section>
+    </main>
+  );
+}
+
+function WelcomeBackdrop() {
+  return (
+    <div className="welcome-backdrop" aria-hidden="true">
+      <span />
+      <span />
+      <span />
+    </div>
+  );
+}
+
+function WelcomeValue({ icon, title, body }: { icon: JSX.Element; title: string; body: string }) {
+  return (
+    <article className="welcome-value">
+      {icon}
+      <div>
+        <h2>{title}</h2>
+        <p>{body}</p>
+      </div>
+    </article>
   );
 }
 
@@ -708,8 +778,8 @@ function JournalApp({ user }: { user: User }) {
                       setTimelineOpen(false);
                     }}
                   >
-                    {item.image_url ? <img src={item.image_url} alt="" /> : <CalendarDays size={18} />}
-                    <span>{entryLabel(item)}</span>
+                    {item.image_url ? <img src={item.image_url} alt="" /> : <Cloud className="timeline-cloud" size={18} />}
+                    <span>{entryLabel(item, filteredEntries)}</span>
                     <small>{item.summary || item.content || "A quiet page"}</small>
                   </button>
                 ))}
@@ -1043,8 +1113,28 @@ function databaseIssue(message: string): AppIssue {
   };
 }
 
-function entryLabel(entry: JournalEntry) {
-  const savedAt = entry.updated_at || entry.created_at;
-  const suffix = entry.entry_index > 1 ? ` #${entry.entry_index}` : "";
-  return `${savedDateTime(savedAt)}${suffix}`;
+function entryLabel(entry: JournalEntry, visibleEntries: JournalEntry[]) {
+  const editedAt = entry.updated_at || entry.created_at;
+  return editedDateTime(editedAt, hasMatchingEditMinute(entry, visibleEntries));
+}
+
+function hasMatchingEditMinute(entry: JournalEntry, visibleEntries: JournalEntry[]) {
+  const editedAt = editMinuteKey(entry);
+  return visibleEntries.some((item) => item.id !== entry.id && editMinuteKey(item) === editedAt);
+}
+
+function editMinuteKey(entry: JournalEntry) {
+  const date = new Date(entry.updated_at || entry.created_at);
+  date.setSeconds(0, 0);
+  return date.getTime();
+}
+
+function editedDateTime(value: string, includeSeconds: boolean) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: includeSeconds ? "2-digit" : undefined,
+  }).format(new Date(value));
 }
