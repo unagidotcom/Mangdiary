@@ -1,4 +1,4 @@
-# Lumora
+# MangDiary
 
 A mobile-first AI journal that opens directly to today's private entry.
 

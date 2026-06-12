@@ -48,7 +48,7 @@ export async function analyzeJournalContent(content: string, apiKey?: string): P
 
   const isDreamEntry = looksLikeDream(content);
   const prompt = [
-    "You are DreamLens inside Lumora, a gentle journaling and dream analysis assistant. Return strict JSON only.",
+    "You are DreamLens inside MangDiary, a gentle journaling and dream analysis assistant. Return strict JSON only.",
     "Fields: summary, reflection, mood, themes, isDreamLike, imagePrompt, cards.",
     "cards must be an array of 1-6 clean insight cards. Each card has title, body, and optional items array.",
     "Use warm natural language. Never diagnose. Keep reflection to one sentence.",
@@ -197,19 +197,19 @@ function shouldUseWallpaperFallback(message: string) {
 
 function cleanProviderWarning(message: string) {
   if (/OPENAI_API_KEY is missing/i.test(message)) {
-    return "OpenAI image generation needs OPENAI_API_KEY in .env.local. Lumora saved a local dream wallpaper until that key is added.";
+    return "OpenAI image generation needs OPENAI_API_KEY in .env.local. MangDiary saved a local dream wallpaper until that key is added.";
   }
   if (/OpenAI|incorrect api key|invalid api key/i.test(message)) {
-    return "OpenAI image generation could not run with the current API key. Lumora saved a local dream wallpaper until the key is fixed.";
+    return "OpenAI image generation could not run with the current API key. MangDiary saved a local dream wallpaper until the key is fixed.";
   }
   if (/billing hard limit/i.test(message)) {
-    return "OpenAI image generation is blocked because the account billing hard limit has been reached. Lumora saved a local dream wallpaper until billing/quota is restored.";
+    return "OpenAI image generation is blocked because the account billing hard limit has been reached. MangDiary saved a local dream wallpaper until billing/quota is restored.";
   }
   if (/quota|limit|exhausted|rate/i.test(message)) {
-    return "Image generation is blocked by the current provider quota for this key/project. Lumora saved a local dream wallpaper so the entry still has an image.";
+    return "Image generation is blocked by the current provider quota for this key/project. MangDiary saved a local dream wallpaper so the entry still has an image.";
   }
   if (/billing|paid|eligible|permission|unavailable/i.test(message)) {
-    return "Image generation is not enabled for this key/project. Lumora saved a local dream wallpaper so the entry still has an image.";
+    return "Image generation is not enabled for this key/project. MangDiary saved a local dream wallpaper so the entry still has an image.";
   }
   return message;
 }

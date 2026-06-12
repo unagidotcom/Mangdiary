@@ -72,7 +72,7 @@ function MissingConfig() {
     <main className="app-shell theme-morning">
       <section className="auth-panel">
         <BookOpen />
-        <h1>Lumora</h1>
+        <h1>MangDiary</h1>
         <p>Add your Supabase environment values in `.env.local` to open the journal.</p>
       </section>
     </main>
@@ -268,7 +268,7 @@ function AuthScreen() {
         transition={{ duration: 0.45 }}
       >
         <BookOpen className="brand-mark" />
-        <h1>Lumora</h1>
+        <h1>MangDiary</h1>
         <p>Open today gently.</p>
         <form onSubmit={submit} className="auth-form">
           <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email" type="email" required />
@@ -452,7 +452,7 @@ function JournalApp({ user }: { user: User }) {
         setSaveState("error");
         setIssue({
           title: "Entry is not ready",
-          detail: "Lumora could not open today's database entry yet, so there is nothing to save. Run the Supabase schema if this keeps happening.",
+          detail: "MangDiary could not open today's database entry yet, so there is nothing to save. Run the Supabase schema if this keeps happening.",
         });
         return;
       }
@@ -674,7 +674,7 @@ function JournalApp({ user }: { user: User }) {
     if (!entry?.image_url) return;
     const link = document.createElement("a");
     link.href = entry.image_url;
-    link.download = `lumora-memory-${entry.entry_date}.${imageExtension(entry.image_url)}`;
+    link.download = `mangdiary-memory-${entry.entry_date}.${imageExtension(entry.image_url)}`;
     document.body.appendChild(link);
     link.click();
     link.remove();
