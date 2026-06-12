@@ -15,9 +15,9 @@ export default async function handler(request: VercelRequest, reply: VercelRespo
 
   const body = typeof request.body === "string" ? JSON.parse(request.body) : request.body;
   const { id, userId, content, accessToken } = body as BeaconRequest;
-  const url = process.env.VITE_SUPABASE_URL;
+  const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
+  const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!id || !userId || typeof content !== "string" || !url) {
     return reply.status(202).json({ ok: false });

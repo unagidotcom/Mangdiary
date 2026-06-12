@@ -7,6 +7,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
 
   return {
+    envPrefix: ["VITE_", "NEXT_PUBLIC_"],
     plugins: [react(), lumoraDevApi(env)],
   };
 });
@@ -94,8 +95,8 @@ async function saveBeaconDraft(body: Record<string, unknown>, env: Record<string
   const userId = typeof body.userId === "string" ? body.userId : "";
   const content = typeof body.content === "string" ? body.content : "";
   const accessToken = typeof body.accessToken === "string" ? body.accessToken : "";
-  const supabaseUrl = env.VITE_SUPABASE_URL;
-  const anonKey = env.VITE_SUPABASE_ANON_KEY;
+  const supabaseUrl = env.VITE_SUPABASE_URL || env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!id || !userId || !content || !accessToken || !supabaseUrl || !anonKey) return;
 
