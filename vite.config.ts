@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { analyzeJournalContent, generateMemoryImageResult } from "./api/_lumora";
+import { analyzeJournalContent, generateMemoryImageResult, normalizeKeyList } from "./api/_lumora";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -36,7 +36,7 @@ function lumoraDevApi(env: Record<string, string>): Plugin {
               sendJson(response, 400, { error: "Missing content" });
               return;
             }
-            sendJson(response, 200, await analyzeJournalContent(content, env.GEMINI_API_KEY));
+            sendJson(response, 200, await analyzeJournalContent(content, normalizeKeyList([env.GEMINI_API_KEY || "", env.GEMINI_API_KEYS || ""])));
             return;
           }
 
@@ -47,7 +47,14 @@ function lumoraDevApi(env: Record<string, string>): Plugin {
               sendJson(response, 400, { error: "Missing content" });
               return;
             }
-            sendJson(response, 200, await generateMemoryImageResult(content, prompt, { openAiApiKey: env.OPENAI_API_KEY, geminiApiKey: env.GEMINI_API_KEY }));
+            sendJson(
+              response,
+              200,
+              await generateMemoryImageResult(content, prompt, {
+                openAiApiKeys: normalizeKeyList([env.OPENAI_API_KEY || "", env.OPENAI_API_KEYS || ""]),
+                geminiApiKeys: normalizeKeyList([env.GEMINI_API_KEY || "", env.GEMINI_API_KEYS || ""]),
+              }),
+            );
             return;
           }
 

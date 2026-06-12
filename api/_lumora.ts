@@ -37,15 +37,16 @@ export type GeneratedMemoryImage = {
 
 type ImageProviderKeys = {
   geminiApiKey?: string;
+  geminiApiKeys?: string[];
   openAiApiKey?: string;
+  openAiApiKeys?: string[];
 };
 
 const OPENAI_IMAGE_MODEL = "gpt-image-1";
 const GEMINI_IMAGE_MODELS = ["gemini-3.1-flash-image", "gemini-2.5-flash-image"];
 
-export async function analyzeJournalContent(content: string, apiKey?: string): Promise<EntryInsight> {
-  if (!apiKey) return localInsight(content);
-
+export async function analyzeJournalContent(content: string, apiKeys?: string | string[]): Promise<EntryInsight> {
+  const keys = normalizeKeyList(apiKeys);
   const isDreamEntry = looksLikeDream(content);
   const prompt = [
     "You are DreamLens inside MangDiary, a gentle journaling and dream analysis assistant. Return strict JSON only.",
@@ -68,21 +69,29 @@ export async function analyzeJournalContent(content: string, apiKey?: string): P
     `Journal entry:\n${content}`,
   ].join("\n\n");
 
-  const geminiResponse = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-    },
-  );
+  for (const apiKey of keys) {
+    try {
+      const geminiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        },
+      );
 
-  if (!geminiResponse.ok) return localInsight(content);
+      if (!geminiResponse.ok) continue;
 
-  const payload = await geminiResponse.json();
-  const text = payload?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  const parsed = parseJson(text);
-  return normalizeInsight(parsed, content);
+      const payload = await geminiResponse.json();
+      const text = payload?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const parsed = parseJson(text);
+      return normalizeInsight(parsed, content);
+    } catch {
+      continue;
+    }
+  }
+
+  return localInsight(content);
 }
 
 export async function generateMemoryImageDataUrl(content: string, _prompt: string | undefined, keysOrGeminiKey?: string | ImageProviderKeys) {
@@ -99,19 +108,23 @@ export async function generateMemoryImageResult(
   const imagePrompt = buildDiaryWallpaperPrompt(direction);
   const errors: string[] = [];
 
-  if (keys.openAiApiKey) {
-    const result = await requestOpenAIImage(imagePrompt, keys.openAiApiKey);
-    if (result.imageUrl) return { imageUrl: result.imageUrl, source: "openai", model: OPENAI_IMAGE_MODEL };
-    if (result.error) errors.push(`${OPENAI_IMAGE_MODEL}: ${result.error}`);
+  if (keys.openAiApiKeys.length) {
+    for (const apiKey of keys.openAiApiKeys) {
+      const result = await requestOpenAIImage(imagePrompt, apiKey);
+      if (result.imageUrl) return { imageUrl: result.imageUrl, source: "openai", model: OPENAI_IMAGE_MODEL };
+      if (result.error) errors.push(`${OPENAI_IMAGE_MODEL}: ${result.error}`);
+    }
   } else {
     errors.push("OPENAI_API_KEY is missing.");
   }
 
-  if (keys.geminiApiKey) {
-    for (const model of GEMINI_IMAGE_MODELS) {
-      const result = await requestGeminiImage(model, imagePrompt, keys.geminiApiKey);
-      if (result.imageUrl) return { imageUrl: result.imageUrl, source: "gemini", model };
-      if (result.error) errors.push(`${model}: ${result.error}`);
+  if (keys.geminiApiKeys.length) {
+    for (const apiKey of keys.geminiApiKeys) {
+      for (const model of GEMINI_IMAGE_MODELS) {
+        const result = await requestGeminiImage(model, imagePrompt, apiKey);
+        if (result.imageUrl) return { imageUrl: result.imageUrl, source: "gemini", model };
+        if (result.error) errors.push(`${model}: ${result.error}`);
+      }
     }
   } else {
     errors.push("GEMINI_API_KEY is missing.");
@@ -122,10 +135,18 @@ export async function generateMemoryImageResult(
   throw new Error(readable);
 }
 
-function normalizeProviderKeys(keysOrGeminiKey?: string | ImageProviderKeys): ImageProviderKeys {
-  if (!keysOrGeminiKey) return {};
-  if (typeof keysOrGeminiKey === "string") return { geminiApiKey: keysOrGeminiKey };
-  return keysOrGeminiKey;
+function normalizeProviderKeys(keysOrGeminiKey?: string | ImageProviderKeys): Required<Pick<ImageProviderKeys, "geminiApiKeys" | "openAiApiKeys">> {
+  if (!keysOrGeminiKey) return { geminiApiKeys: [], openAiApiKeys: [] };
+  if (typeof keysOrGeminiKey === "string") return { geminiApiKeys: normalizeKeyList(keysOrGeminiKey), openAiApiKeys: [] };
+  return {
+    geminiApiKeys: [...normalizeKeyList(keysOrGeminiKey.geminiApiKey), ...normalizeKeyList(keysOrGeminiKey.geminiApiKeys)],
+    openAiApiKeys: [...normalizeKeyList(keysOrGeminiKey.openAiApiKey), ...normalizeKeyList(keysOrGeminiKey.openAiApiKeys)],
+  };
+}
+
+export function normalizeKeyList(keys?: string | string[]) {
+  const rawKeys = Array.isArray(keys) ? keys : keys?.split(/[,\n]+/) || [];
+  return Array.from(new Set(rawKeys.map((key) => key.trim()).filter(Boolean)));
 }
 
 async function requestOpenAIImage(imagePrompt: string, apiKey: string) {

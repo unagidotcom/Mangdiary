@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { analyzeJournalContent } from "./_lumora";
+import { analyzeJournalContent, normalizeKeyList } from "./_lumora";
 
 type AnalyzeRequest = {
   content?: string;
@@ -15,7 +15,7 @@ export default async function handler(request: VercelRequest, reply: VercelRespo
     return reply.status(400).json({ error: "Missing content" });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  const insight = await analyzeJournalContent(content, apiKey);
+  const apiKeys = normalizeKeyList([process.env.GEMINI_API_KEY || "", process.env.GEMINI_API_KEYS || ""]);
+  const insight = await analyzeJournalContent(content, apiKeys);
   return reply.status(200).json(insight);
 }

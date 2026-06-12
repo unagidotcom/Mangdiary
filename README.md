@@ -15,3 +15,12 @@ npm run dev
 ```
 
 Gemini/OpenAI calls are routed through Vercel serverless endpoints in `api/` so the browser never receives provider API keys. For production, add `SUPABASE_SERVICE_ROLE_KEY` in Vercel environment variables to make the unload/beacon save endpoint more reliable; never expose that value with a `VITE_` prefix.
+
+To fail over across multiple provider keys, add comma-separated server-only values in Vercel:
+
+```bash
+GEMINI_API_KEYS=first_key,second_key
+OPENAI_API_KEYS=first_key,second_key
+```
+
+Single-key variables (`GEMINI_API_KEY` and `OPENAI_API_KEY`) still work and are tried before the list values.

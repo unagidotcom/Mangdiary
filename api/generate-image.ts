@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { generateMemoryImageResult } from "./_lumora";
+import { generateMemoryImageResult, normalizeKeyList } from "./_lumora";
 
 type GenerateImageRequest = {
   content?: string;
@@ -18,8 +18,8 @@ export default async function handler(request: VercelRequest, reply: VercelRespo
 
     return reply.status(200).json(
       await generateMemoryImageResult(content, prompt, {
-        openAiApiKey: process.env.OPENAI_API_KEY,
-        geminiApiKey: process.env.GEMINI_API_KEY,
+        openAiApiKeys: normalizeKeyList([process.env.OPENAI_API_KEY || "", process.env.OPENAI_API_KEYS || ""]),
+        geminiApiKeys: normalizeKeyList([process.env.GEMINI_API_KEY || "", process.env.GEMINI_API_KEYS || ""]),
       }),
     );
   } catch (error) {
