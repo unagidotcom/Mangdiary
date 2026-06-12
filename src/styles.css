@@ -234,6 +234,79 @@ body[data-theme="night"] h6 {
   color: var(--color-accent);
 }
 
+.welcome-panel {
+  width: min(100% - 40px, 460px);
+  gap: 14px;
+}
+
+.welcome-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-accent);
+}
+
+.welcome-mark svg {
+  width: 28px;
+  height: 28px;
+}
+
+.welcome-kicker {
+  color: var(--text-secondary);
+  font-size: var(--type-small);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.welcome-panel p {
+  max-width: 390px;
+  font-size: var(--type-body-large);
+}
+
+.welcome-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.google-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 50px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--button-bg);
+  color: var(--button-text);
+  padding: 14px 16px;
+}
+
+.google-button:disabled {
+  cursor: wait;
+  opacity: 0.76;
+}
+
+.google-g {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #111111;
+  font-size: var(--type-small);
+  font-weight: 800;
+}
+
+.welcome-panel small {
+  max-width: 390px;
+  color: var(--text-secondary);
+  font-size: var(--type-caption);
+  line-height: 1.5;
+}
+
 .auth-panel h1,
 .entry-heading h1 {
   margin: 0;

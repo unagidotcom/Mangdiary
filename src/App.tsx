@@ -15,7 +15,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSpeechRecognition } from "./hooks/useSpeechRecognition";
 import { dateMonthsAgo, dateYearsAgo, greeting, isoToday, longDate, savedDateTime, themeForTime } from "./lib/date";
 import { hasSupabaseConfig, supabase } from "./lib/supabase";
@@ -52,7 +52,7 @@ export function App() {
   }, []);
 
   if (booting) return <Splash />;
-  if (!hasSupabaseConfig) return <LocalPreviewApp />;
+  if (!hasSupabaseConfig) return import.meta.env.DEV ? <LocalPreviewApp /> : <MissingConfig />;
   if (!session) return <AuthScreen />;
   return <JournalApp user={session.user} />;
 }
@@ -231,66 +231,45 @@ function LocalPreviewApp() {
 }
 
 function AuthScreen() {
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
+  async function signInWithGoogle() {
     setLoading(true);
     setError("");
-    const authCall =
-      mode === "signin"
-        ? supabase.auth.signInWithPassword({ email, password })
-        : supabase.auth.signUp({ email, password });
-
-    const { error: authError } = await authCall;
-    setLoading(false);
-    if (authError) setError(authError.message);
-  }
-
-  async function signInWithGoogle() {
     const { error: authError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: window.location.origin },
     });
-    if (authError) setError(authError.message);
+    if (authError) {
+      setLoading(false);
+      setError(authError.message);
+    }
   }
 
   return (
     <main className="app-shell theme-morning">
       <motion.section
-        className="auth-panel"
+        className="auth-panel welcome-panel"
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45 }}
       >
-        <BookOpen className="brand-mark" />
+        <div className="welcome-mark">
+          <BookOpen className="brand-mark" />
+          <Sparkles />
+        </div>
+        <span className="welcome-kicker">Private AI journal</span>
         <h1>MangDiary</h1>
-        <p>Open today gently.</p>
-        <form onSubmit={submit} className="auth-form">
-          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email" type="email" required />
-          <input
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="Password"
-            type="password"
-            minLength={6}
-            required
-          />
-          {error ? <span className="form-error">{error}</span> : null}
-          <button type="submit" disabled={loading}>
-            {loading ? "Opening..." : mode === "signin" ? "Sign In" : "Create Account"}
+        <p>Welcome. Sign in with Google so every diary entry stays tied to your own private account.</p>
+        <div className="welcome-actions">
+          <button className="google-button" type="button" onClick={signInWithGoogle} disabled={loading}>
+            <span className="google-g">G</span>
+            {loading ? "Opening Google..." : "Continue with Google"}
           </button>
-        </form>
-        <button className="secondary-button" type="button" onClick={signInWithGoogle}>
-          Continue with Google
-        </button>
-        <button className="text-button" type="button" onClick={() => setMode(mode === "signin" ? "signup" : "signin")}>
-          {mode === "signin" ? "Create an account" : "I already have an account"}
-        </button>
+          {error ? <span className="form-error">{error}</span> : null}
+        </div>
+        <small>Your entries are saved under your authenticated Supabase user ID.</small>
       </motion.section>
     </main>
   );
