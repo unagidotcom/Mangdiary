@@ -30,7 +30,7 @@ type DiaryImageDirection = {
 
 export type GeneratedMemoryImage = {
   imageUrl: string;
-  source: "openai" | "gemini" | "fallback";
+  source: "gemini" | "fallback";
   model?: string;
   warning?: string;
 };
@@ -38,11 +38,8 @@ export type GeneratedMemoryImage = {
 type ImageProviderKeys = {
   geminiApiKey?: string;
   geminiApiKeys?: string[];
-  openAiApiKey?: string;
-  openAiApiKeys?: string[];
 };
 
-const OPENAI_IMAGE_MODEL = "gpt-image-1";
 const GEMINI_IMAGE_MODELS = ["gemini-3.1-flash-image", "gemini-2.5-flash-image"];
 
 export async function analyzeJournalContent(content: string, apiKeys?: string | string[]): Promise<EntryInsight> {
@@ -108,16 +105,6 @@ export async function generateMemoryImageResult(
   const imagePrompt = buildDiaryWallpaperPrompt(direction);
   const errors: string[] = [];
 
-  if (keys.openAiApiKeys.length) {
-    for (const apiKey of keys.openAiApiKeys) {
-      const result = await requestOpenAIImage(imagePrompt, apiKey);
-      if (result.imageUrl) return { imageUrl: result.imageUrl, source: "openai", model: OPENAI_IMAGE_MODEL };
-      if (result.error) errors.push(`${OPENAI_IMAGE_MODEL}: ${result.error}`);
-    }
-  } else {
-    errors.push("OPENAI_API_KEY is missing.");
-  }
-
   if (keys.geminiApiKeys.length) {
     for (const apiKey of keys.geminiApiKeys) {
       for (const model of GEMINI_IMAGE_MODELS) {
@@ -130,47 +117,22 @@ export async function generateMemoryImageResult(
     errors.push("GEMINI_API_KEY is missing.");
   }
 
-  const readable = errors[0] || "Gemini image generation did not return an image.";
+  const readable = summarizeProviderErrors(errors);
   if (shouldUseWallpaperFallback(readable)) return fallbackImageResult(content, readable);
   throw new Error(readable);
 }
 
-function normalizeProviderKeys(keysOrGeminiKey?: string | ImageProviderKeys): Required<Pick<ImageProviderKeys, "geminiApiKeys" | "openAiApiKeys">> {
-  if (!keysOrGeminiKey) return { geminiApiKeys: [], openAiApiKeys: [] };
-  if (typeof keysOrGeminiKey === "string") return { geminiApiKeys: normalizeKeyList(keysOrGeminiKey), openAiApiKeys: [] };
+function normalizeProviderKeys(keysOrGeminiKey?: string | ImageProviderKeys): Required<Pick<ImageProviderKeys, "geminiApiKeys">> {
+  if (!keysOrGeminiKey) return { geminiApiKeys: [] };
+  if (typeof keysOrGeminiKey === "string") return { geminiApiKeys: normalizeKeyList(keysOrGeminiKey) };
   return {
     geminiApiKeys: [...normalizeKeyList(keysOrGeminiKey.geminiApiKey), ...normalizeKeyList(keysOrGeminiKey.geminiApiKeys)],
-    openAiApiKeys: [...normalizeKeyList(keysOrGeminiKey.openAiApiKey), ...normalizeKeyList(keysOrGeminiKey.openAiApiKeys)],
   };
 }
 
 export function normalizeKeyList(keys?: string | string[]) {
   const rawKeys = Array.isArray(keys) ? keys : keys?.split(/[,\n]+/) || [];
   return Array.from(new Set(rawKeys.map((key) => key.trim()).filter(Boolean)));
-}
-
-async function requestOpenAIImage(imagePrompt: string, apiKey: string) {
-  const openAiResponse = await fetch("https://api.openai.com/v1/images/generations", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: OPENAI_IMAGE_MODEL,
-      prompt: imagePrompt,
-      size: "1024x1536",
-      quality: "medium",
-      n: 1,
-    }),
-  });
-
-  if (!openAiResponse.ok) return { error: readableOpenAIError(await openAiResponse.text()) };
-
-  const payload = await openAiResponse.json();
-  const data = payload?.data?.[0]?.b64_json;
-  if (!data) return { error: "OpenAI responded but did not include image bytes." };
-  return { imageUrl: `data:image/png;base64,${data}` };
 }
 
 async function requestGeminiImage(model: string, imagePrompt: string, apiKey: string) {
@@ -216,21 +178,20 @@ function shouldUseWallpaperFallback(message: string) {
   return /\b(quota|billing|paid|unavailable|permission|eligible|exhausted|rate|limit|api key|missing|invalid|incorrect)\b/i.test(message);
 }
 
+function summarizeProviderErrors(errors: string[]) {
+  if (!errors.length) return "Gemini image generation did not return an image.";
+  return errors.slice(0, 4).join(" | ");
+}
+
 function cleanProviderWarning(message: string) {
-  if (/OPENAI_API_KEY is missing/i.test(message)) {
-    return "OpenAI image generation needs OPENAI_API_KEY in .env.local. MangDiary saved a local dream wallpaper until that key is added.";
-  }
-  if (/OpenAI|incorrect api key|invalid api key/i.test(message)) {
-    return "OpenAI image generation could not run with the current API key. MangDiary saved a local dream wallpaper until the key is fixed.";
-  }
-  if (/billing hard limit/i.test(message)) {
-    return "OpenAI image generation is blocked because the account billing hard limit has been reached. MangDiary saved a local dream wallpaper until billing/quota is restored.";
+  if (message.includes(" | ")) {
+    return `Gemini image generation could not use the configured keys. MangDiary saved a local dream wallpaper instead. Provider details: ${message}`;
   }
   if (/quota|limit|exhausted|rate/i.test(message)) {
-    return "Image generation is blocked by the current provider quota for this key/project. MangDiary saved a local dream wallpaper so the entry still has an image.";
+    return "Gemini image generation is blocked by the current quota for this key/project. MangDiary saved a local dream wallpaper so the entry still has an image.";
   }
   if (/billing|paid|eligible|permission|unavailable/i.test(message)) {
-    return "Image generation is not enabled for this key/project. MangDiary saved a local dream wallpaper so the entry still has an image.";
+    return "Gemini image generation is not enabled for this key/project. MangDiary saved a local dream wallpaper so the entry still has an image.";
   }
   return message;
 }
@@ -509,17 +470,6 @@ function readableGeminiError(errorText: string) {
     return message || "Image generation failed.";
   } catch {
     return errorText || "Image generation failed.";
-  }
-}
-
-function readableOpenAIError(errorText: string) {
-  try {
-    const parsed = JSON.parse(errorText);
-    const message = String(parsed?.error?.message || "");
-    const code = String(parsed?.error?.code || "");
-    return message || code || "OpenAI image generation failed.";
-  } catch {
-    return errorText || "OpenAI image generation failed.";
   }
 }
 

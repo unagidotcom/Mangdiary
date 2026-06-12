@@ -51,7 +51,6 @@ function lumoraDevApi(env: Record<string, string>): Plugin {
               response,
               200,
               await generateMemoryImageResult(content, prompt, {
-                openAiApiKeys: normalizeKeyList([env.OPENAI_API_KEY || "", env.OPENAI_API_KEYS || ""]),
                 geminiApiKeys: normalizeKeyList([env.GEMINI_API_KEY || "", env.GEMINI_API_KEYS || ""]),
               }),
             );

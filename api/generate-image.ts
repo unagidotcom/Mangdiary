@@ -18,7 +18,6 @@ export default async function handler(request: VercelRequest, reply: VercelRespo
 
     return reply.status(200).json(
       await generateMemoryImageResult(content, prompt, {
-        openAiApiKeys: normalizeKeyList([process.env.OPENAI_API_KEY || "", process.env.OPENAI_API_KEYS || ""]),
         geminiApiKeys: normalizeKeyList([process.env.GEMINI_API_KEY || "", process.env.GEMINI_API_KEYS || ""]),
       }),
     );
