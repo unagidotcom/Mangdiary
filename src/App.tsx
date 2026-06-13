@@ -961,7 +961,7 @@ function JournalApp({ user }: { user: User }) {
         },
         body: JSON.stringify({}),
       });
-      const result = (await response.json()) as { match?: ActiveDreamMatch | null; error?: string };
+      const result = await readJsonResponse<{ match?: ActiveDreamMatch | null; error?: string }>(response);
       if (!response.ok || result.error) throw new Error(result.error || "Dream matching failed.");
 
       if (!result.match) {
@@ -1452,6 +1452,7 @@ function JournalApp({ user }: { user: User }) {
                   type="button"
                   onClick={() => {
                     setCommandView("archive");
+                    setTimelineOpen(false);
                     void loadEntryForDate(today);
                   }}
                 >
@@ -2622,6 +2623,15 @@ async function analyzeEntry(content: string) {
     return (await response.json()) as EntryInsight;
   } catch {
     return null;
+  }
+}
+
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  try {
+    return (text ? JSON.parse(text) : {}) as T;
+  } catch {
+    throw new Error(text.trim() || "Server returned an invalid response.");
   }
 }
 
