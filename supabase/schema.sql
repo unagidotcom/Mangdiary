@@ -56,6 +56,20 @@ create unique index if not exists profiles_username_lower_unique
 on public.profiles (lower(username))
 where username is not null and length(trim(username)) > 0;
 
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'avatars',
+  'avatars',
+  true,
+  4194304,
+  array['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+)
+on conflict (id) do update
+set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
 alter table if exists public.journal_entries
 drop constraint if exists journal_entries_user_id_entry_date_key;
 
@@ -207,6 +221,10 @@ drop policy if exists "Users can delete own journal entries" on public.journal_e
 drop policy if exists "Users can read own profile" on public.profiles;
 drop policy if exists "Users can insert own profile" on public.profiles;
 drop policy if exists "Users can update own profile" on public.profiles;
+drop policy if exists "Avatar images are public" on storage.objects;
+drop policy if exists "Users can upload own avatar" on storage.objects;
+drop policy if exists "Users can update own avatar" on storage.objects;
+drop policy if exists "Users can delete own avatar" on storage.objects;
 drop policy if exists "Users can read own weekly reflections" on public.weekly_reflections;
 drop policy if exists "Users can manage own weekly reflections" on public.weekly_reflections;
 drop policy if exists "Users can read own monthly reflections" on public.monthly_reflections;
@@ -250,6 +268,23 @@ create policy "Users can update own profile"
 on public.profiles for update
 using (auth.uid() = id)
 with check (auth.uid() = id);
+
+create policy "Avatar images are public"
+on storage.objects for select
+using (bucket_id = 'avatars');
+
+create policy "Users can upload own avatar"
+on storage.objects for insert
+with check (bucket_id = 'avatars' and auth.uid()::text = (storage.foldername(name))[1]);
+
+create policy "Users can update own avatar"
+on storage.objects for update
+using (bucket_id = 'avatars' and auth.uid()::text = (storage.foldername(name))[1])
+with check (bucket_id = 'avatars' and auth.uid()::text = (storage.foldername(name))[1]);
+
+create policy "Users can delete own avatar"
+on storage.objects for delete
+using (bucket_id = 'avatars' and auth.uid()::text = (storage.foldername(name))[1]);
 
 create policy "Users can read own weekly reflections"
 on public.weekly_reflections for select

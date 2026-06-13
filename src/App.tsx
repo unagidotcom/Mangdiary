@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent } from "react";
+import type { PointerEvent, ReactNode } from "react";
 import { useSpeechRecognition } from "./hooks/useSpeechRecognition";
 import { dateMonthsAgo, dateYearsAgo, greeting, isoToday, longDate, themeForTime } from "./lib/date";
 import { hasSupabaseConfig, supabase } from "./lib/supabase";
@@ -321,6 +321,8 @@ function LocalPreviewApp() {
 function AuthScreen({ onStartedSignIn }: { onStartedSignIn: () => void }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   async function signInWithGoogle() {
     setLoading(true);
@@ -333,6 +335,24 @@ function AuthScreen({ onStartedSignIn }: { onStartedSignIn: () => void }) {
     if (authError) {
       setLoading(false);
       setError(authError.message);
+    }
+  }
+
+  async function signInWithPassword() {
+    const nextEmail = email.trim();
+    if (!nextEmail || !password) {
+      setError("Enter your email and password.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    const { error: authError } = await supabase.auth.signInWithPassword({ email: nextEmail, password });
+    if (authError) {
+      setLoading(false);
+      setError(authError.message);
+    } else {
+      onStartedSignIn();
     }
   }
 
@@ -358,6 +378,28 @@ function AuthScreen({ onStartedSignIn }: { onStartedSignIn: () => void }) {
           <WelcomeValue icon={<BookOpen />} title="Pattern Memory" body="Look back across days, weeks, and months to notice what keeps returning." />
         </div>
         <div className="welcome-actions">
+          <div className="email-login">
+            <input
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="Email"
+              type="email"
+              autoComplete="email"
+            />
+            <input
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Password"
+              type="password"
+              autoComplete="current-password"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void signInWithPassword();
+              }}
+            />
+            <button type="button" onClick={signInWithPassword} disabled={loading}>
+              {loading ? "Signing in..." : "Sign in with email"}
+            </button>
+          </div>
           <button className="google-button" type="button" onClick={signInWithGoogle} disabled={loading}>
             <span className="google-g">G</span>
             {loading ? "Opening Google..." : "Continue with Google"}
@@ -468,6 +510,11 @@ function JournalApp({ user }: { user: User }) {
   const [profileForm, setProfileForm] = useState<ProfileForm>(() => profileFormFromUser(user));
   const [profileState, setProfileState] = useState<"idle" | "loading" | "saving" | "saved" | "error">("idle");
   const [profileError, setProfileError] = useState("");
+  const [avatarState, setAvatarState] = useState<"idle" | "uploading" | "error">("idle");
+  const [avatarError, setAvatarError] = useState("");
+  const [passwordForm, setPasswordForm] = useState<PasswordForm>({ password: "", confirmPassword: "" });
+  const [passwordState, setPasswordState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [passwordError, setPasswordError] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<MockNotification[]>(initialNotifications);
   const [socialStage, setSocialStage] = useState<SocialStage>("none");
@@ -1148,7 +1195,7 @@ function JournalApp({ user }: { user: User }) {
           id: user.id,
           username: nullableProfileValue(normalized.username),
           display_name: nullableProfileValue(normalized.display_name),
-          avatar_url: nullableProfileValue(profileAvatar(user)),
+          avatar_url: nullableProfileValue(profileAvatar(user, profile)),
           bio: nullableProfileValue(normalized.bio),
           instagram_handle: nullableProfileValue(stripHandlePrefix(normalized.instagram_handle)),
           tiktok_handle: nullableProfileValue(stripHandlePrefix(normalized.tiktok_handle)),
@@ -1178,7 +1225,102 @@ function JournalApp({ user }: { user: User }) {
       },
     });
     setProfileState("saved");
+    setProfileOpen(false);
     window.setTimeout(() => setProfileState("idle"), 1400);
+  }
+
+  async function uploadProfileAvatar(file: File) {
+    if (!file.type.startsWith("image/")) {
+      setAvatarState("error");
+      setAvatarError("Choose an image file.");
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      setAvatarState("error");
+      setAvatarError("Profile image must be smaller than 4 MB.");
+      return;
+    }
+
+    setAvatarState("uploading");
+    setAvatarError("");
+
+    try {
+      const extension = avatarFileExtension(file);
+      const path = `${user.id}/avatar-${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, {
+        cacheControl: "3600",
+        upsert: false,
+      });
+      if (uploadError) throw uploadError;
+
+      const { data: publicData } = supabase.storage.from("avatars").getPublicUrl(path);
+      const avatarUrl = publicData.publicUrl;
+      const { data, error } = await supabase
+        .from("profiles")
+        .upsert(
+          {
+            id: user.id,
+            username: nullableProfileValue(profileForm.username),
+            display_name: nullableProfileValue(profileForm.display_name),
+            avatar_url: avatarUrl,
+            bio: nullableProfileValue(profileForm.bio),
+            instagram_handle: nullableProfileValue(stripHandlePrefix(profileForm.instagram_handle)),
+            tiktok_handle: nullableProfileValue(stripHandlePrefix(profileForm.tiktok_handle)),
+            extra_links: buildExtraLinks(profileForm),
+            matching_enabled: profileForm.matching_enabled,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "id" },
+        )
+        .select("*")
+        .single();
+      if (error) throw error;
+
+      if (data) {
+        const nextProfile = data as UserProfile;
+        setProfile(nextProfile);
+        setProfileForm(profileFormFromUser(user, nextProfile));
+      }
+      await supabase.auth.updateUser({ data: { avatar_url: avatarUrl, picture: avatarUrl } });
+      setAvatarState("idle");
+    } catch (error) {
+      setAvatarState("error");
+      setAvatarError(error instanceof Error ? profileIssue(error.message) : "Profile image could not be uploaded.");
+    }
+  }
+
+  async function updateAccountPassword() {
+    const nextPassword = passwordForm.password;
+    if (nextPassword.length < 8) {
+      setPasswordState("error");
+      setPasswordError("Password must be at least 8 characters.");
+      return;
+    }
+    if (nextPassword !== passwordForm.confirmPassword) {
+      setPasswordState("error");
+      setPasswordError("Passwords do not match.");
+      return;
+    }
+
+    setPasswordState("saving");
+    setPasswordError("");
+    const { error } = await supabase.auth.updateUser({ password: nextPassword });
+    if (error) {
+      setPasswordState("error");
+      setPasswordError(error.message);
+      return;
+    }
+
+    setPasswordForm({ password: "", confirmPassword: "" });
+    setPasswordState("saved");
+    window.setTimeout(() => setPasswordState("idle"), 1800);
+  }
+
+  function closeFloatingPanels() {
+    setSearchOpen(false);
+    setTimelineOpen(false);
+    setNotificationsOpen(false);
+    setProfileOpen(false);
   }
 
   function openSearchResult(item: JournalEntry) {
@@ -1200,6 +1342,7 @@ function JournalApp({ user }: { user: User }) {
             setSearchOpen((open) => !open);
             setTimelineOpen(false);
             setNotificationsOpen(false);
+            setProfileOpen(false);
           }}
           aria-label="Search entries"
           title="Search entries"
@@ -1212,6 +1355,9 @@ function JournalApp({ user }: { user: User }) {
             type="button"
             onClick={() => {
               setNotificationsOpen((open) => !open);
+              setSearchOpen(false);
+              setTimelineOpen(false);
+              setProfileOpen(false);
               if (!notificationsOpen) void refreshDreamMatch();
             }}
             aria-label="Notifications"
@@ -1225,25 +1371,29 @@ function JournalApp({ user }: { user: User }) {
 
       <AnimatePresence>
         {searchOpen ? (
-          <SearchPanel
-            query={query}
-            results={searchResults}
-            onQueryChange={setQuery}
-            onClose={() => setSearchOpen(false)}
-            onOpenEntry={openSearchResult}
-          />
+          <OverlayLayer className="search-overlay" onClose={() => setSearchOpen(false)}>
+            <SearchPanel
+              query={query}
+              results={searchResults}
+              onQueryChange={setQuery}
+              onClose={() => setSearchOpen(false)}
+              onOpenEntry={openSearchResult}
+            />
+          </OverlayLayer>
         ) : null}
         {notificationsOpen ? (
-          <NotificationDrawer
-            notifications={notifications}
-            matchState={dreamMatchState}
-            matchError={dreamMatchError}
-            onClose={() => setNotificationsOpen(false)}
-            onMarkAllRead={markAllNotificationsRead}
-            onOpenDreamMatch={openDreamMatchFlow}
-            onSkipDreamMatch={skipDreamMatch}
-            onReadNotification={markNotificationRead}
-          />
+          <OverlayLayer className="notification-overlay" onClose={() => setNotificationsOpen(false)}>
+            <NotificationDrawer
+              notifications={notifications}
+              matchState={dreamMatchState}
+              matchError={dreamMatchError}
+              onClose={() => setNotificationsOpen(false)}
+              onMarkAllRead={markAllNotificationsRead}
+              onOpenDreamMatch={openDreamMatchFlow}
+              onSkipDreamMatch={skipDreamMatch}
+              onReadNotification={markNotificationRead}
+            />
+          </OverlayLayer>
         ) : null}
       </AnimatePresence>
 
@@ -1269,7 +1419,7 @@ function JournalApp({ user }: { user: User }) {
             messages={chatMessages}
             draft={chatDraft}
             currentUserName={profileForm.display_name || profileForm.username || user.email?.split("@")[0] || "You"}
-            currentUserAvatar={profileAvatar(user)}
+            currentUserAvatar={profileAvatar(user, profile)}
             currentUserInitials={profileInitials(user, profileForm)}
             otherUserName={activeDreamMatch?.otherProfile.displayName || "Matched dreamer"}
             otherUserAvatar={activeDreamMatch?.otherProfile.avatarUrl || ""}
@@ -1280,9 +1430,9 @@ function JournalApp({ user }: { user: User }) {
         ) : null}
       </AnimatePresence>
 
-      <div className="journal-layout">
-        <AnimatePresence>
-          {timelineOpen ? (
+      <AnimatePresence>
+        {timelineOpen ? (
+          <OverlayLayer className="command-overlay" onClose={() => setTimelineOpen(false)}>
             <motion.aside
               className="timeline"
               initial={{ opacity: 0 }}
@@ -1399,24 +1549,38 @@ function JournalApp({ user }: { user: User }) {
               ) : null}
               {commandView === "analytics" ? <RangeAnalyticsPanel analytics={rangeAnalytics} /> : null}
             </motion.aside>
-          ) : null}
-        </AnimatePresence>
+          </OverlayLayer>
+        ) : null}
+      </AnimatePresence>
 
+      <AnimatePresence>
+        {profileOpen ? (
+          <OverlayLayer className="profile-overlay" onClose={() => setProfileOpen(false)}>
+            <ProfilePanel
+              user={user}
+              profile={profile}
+              form={profileForm}
+              state={profileState}
+              error={profileError}
+              avatarState={avatarState}
+              avatarError={avatarError}
+              passwordForm={passwordForm}
+              passwordState={passwordState}
+              passwordError={passwordError}
+              onChange={setProfileForm}
+              onSave={saveProfile}
+              onAvatarUpload={(file) => void uploadProfileAvatar(file)}
+              onPasswordChange={setPasswordForm}
+              onPasswordSave={() => void updateAccountPassword()}
+              onClose={() => setProfileOpen(false)}
+              onSignOut={() => supabase.auth.signOut()}
+            />
+          </OverlayLayer>
+        ) : null}
+      </AnimatePresence>
+
+      <div className="journal-layout">
         <section className="journal-page">
-          <AnimatePresence>
-            {profileOpen ? (
-              <ProfilePanel
-                user={user}
-                profile={profile}
-                form={profileForm}
-                state={profileState}
-                error={profileError}
-                onChange={setProfileForm}
-                onSave={saveProfile}
-                onSignOut={() => supabase.auth.signOut()}
-              />
-            ) : null}
-          </AnimatePresence>
           {issue ? <IssueNotice issue={issue} /> : null}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="entry-heading">
             <h1>{greeting()}</h1>
@@ -1496,12 +1660,20 @@ function JournalApp({ user }: { user: User }) {
         </section>
       </div>
       <BottomNav
-        onHome={() => loadEntryForDate(today)}
+        onHome={() => {
+          closeFloatingPanels();
+          void loadEntryForDate(today);
+        }}
         onJournal={() => {
           setTimelineOpen(true);
+          setSearchOpen(false);
           setProfileOpen(false);
+          setNotificationsOpen(false);
         }}
-        onInsights={runAiInsights}
+        onInsights={() => {
+          closeFloatingPanels();
+          runAiInsights();
+        }}
         onDiscover={() => {
           setNotificationsOpen(false);
           setSocialStage("consent");
@@ -1509,6 +1681,8 @@ function JournalApp({ user }: { user: User }) {
         onProfile={() => {
           setProfileOpen(true);
           setTimelineOpen(false);
+          setSearchOpen(false);
+          setNotificationsOpen(false);
         }}
       />
       <button className="new-entry-fab" type="button" onClick={createNewEntry} aria-label="New entry" title="New entry">
@@ -1531,6 +1705,31 @@ function IssueNotice({ issue }: { issue: AppIssue }) {
       <strong>{issue.title}</strong>
       <p>{issue.detail}</p>
     </section>
+  );
+}
+
+function OverlayLayer({
+  children,
+  className,
+  onClose,
+}: {
+  children: ReactNode;
+  className: string;
+  onClose: () => void;
+}) {
+  return (
+    <motion.div
+      className={`overlay-layer ${className}`}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.16 }}
+    >
+      <button className="overlay-backdrop" type="button" onClick={onClose} aria-label="Close overlay" />
+      <div className="overlay-content" onClick={(event) => event.stopPropagation()}>
+        {children}
+      </div>
+    </motion.div>
   );
 }
 
@@ -1965,14 +2164,28 @@ type ProfileForm = {
   matching_enabled: boolean;
 };
 
+type PasswordForm = {
+  password: string;
+  confirmPassword: string;
+};
+
 function ProfilePanel({
   user,
   profile,
   form,
   state,
   error,
+  avatarState,
+  avatarError,
+  passwordForm,
+  passwordState,
+  passwordError,
   onChange,
   onSave,
+  onAvatarUpload,
+  onPasswordChange,
+  onPasswordSave,
+  onClose,
   onSignOut,
 }: {
   user: User;
@@ -1980,17 +2193,30 @@ function ProfilePanel({
   form: ProfileForm;
   state: "idle" | "loading" | "saving" | "saved" | "error";
   error: string;
+  avatarState: "idle" | "uploading" | "error";
+  avatarError: string;
+  passwordForm: PasswordForm;
+  passwordState: "idle" | "saving" | "saved" | "error";
+  passwordError: string;
   onChange: (form: ProfileForm) => void;
   onSave: () => void;
+  onAvatarUpload: (file: File) => void;
+  onPasswordChange: (form: PasswordForm) => void;
+  onPasswordSave: () => void;
+  onClose: () => void;
   onSignOut: () => void;
 }) {
-  const avatarUrl = profileAvatar(user);
+  const avatarUrl = profileAvatar(user, profile);
   const initials = profileInitials(user, form);
   const statusText =
     state === "loading" ? "Loading profile..." : state === "saving" ? "Saving..." : state === "saved" ? "Saved" : "";
 
   function update<K extends keyof ProfileForm>(key: K, value: ProfileForm[K]) {
     onChange({ ...form, [key]: value });
+  }
+
+  function updatePassword<K extends keyof PasswordForm>(key: K, value: PasswordForm[K]) {
+    onPasswordChange({ ...passwordForm, [key]: value });
   }
 
   return (
@@ -2010,7 +2236,23 @@ function ProfilePanel({
         <div>
           <h2>Your Profile</h2>
           <p>{user.email || "Signed in with Google"}</p>
+          <label className="avatar-upload-button">
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) onAvatarUpload(file);
+              }}
+              disabled={avatarState === "uploading"}
+            />
+            {avatarState === "uploading" ? "Uploading photo..." : "Change photo"}
+          </label>
         </div>
+        <button className="profile-close" type="button" onClick={onClose} aria-label="Close profile">
+          <CloseIcon size={17} />
+        </button>
       </div>
 
       <div className="profile-grid">
@@ -2088,7 +2330,42 @@ function ProfilePanel({
       </label>
 
       {error ? <p className="profile-error">{error}</p> : null}
+      {avatarState === "error" ? <p className="profile-error">{avatarError}</p> : null}
       {profile?.updated_at ? <small className="profile-updated">Last saved {editedDateTime(profile.updated_at, false)}</small> : null}
+
+      <section className="account-security">
+        <div>
+          <h3>Account Password</h3>
+          <p>Set a password for this email so you can sign in without Google next time.</p>
+        </div>
+        <div className="profile-grid">
+          <label className="profile-field">
+            <span>New password</span>
+            <input
+              value={passwordForm.password}
+              onChange={(event) => updatePassword("password", event.target.value)}
+              type="password"
+              placeholder="At least 8 characters"
+              autoComplete="new-password"
+            />
+          </label>
+          <label className="profile-field">
+            <span>Confirm password</span>
+            <input
+              value={passwordForm.confirmPassword}
+              onChange={(event) => updatePassword("confirmPassword", event.target.value)}
+              type="password"
+              placeholder="Repeat password"
+              autoComplete="new-password"
+            />
+          </label>
+        </div>
+        {passwordState === "error" ? <p className="profile-error">{passwordError}</p> : null}
+        {passwordState === "saved" ? <p className="profile-success">Password updated. You can sign in with this email and password.</p> : null}
+        <button className="password-save-button" type="button" onClick={onPasswordSave} disabled={passwordState === "saving"}>
+          {passwordState === "saving" ? "Updating..." : "Set Password"}
+        </button>
+      </section>
 
       <div className="profile-actions">
         <span>{statusText}</span>
@@ -2597,7 +2874,17 @@ function profileInitials(user: User, form: ProfileForm) {
   return initialsForName(source, "MD");
 }
 
-function profileAvatar(user: User) {
+function avatarFileExtension(file: File) {
+  const fromName = file.name.split(".").pop()?.toLowerCase();
+  if (fromName && ["png", "jpg", "jpeg", "webp", "gif"].includes(fromName)) return fromName === "jpeg" ? "jpg" : fromName;
+  if (file.type.includes("png")) return "png";
+  if (file.type.includes("webp")) return "webp";
+  if (file.type.includes("gif")) return "gif";
+  return "jpg";
+}
+
+function profileAvatar(user: User, profile?: UserProfile | null) {
+  if (profile?.avatar_url) return profile.avatar_url;
   const metadata = user.user_metadata as Record<string, unknown>;
   return asString(metadata.avatar_url) || asString(metadata.picture);
 }
