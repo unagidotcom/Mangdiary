@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { findDreamMatch } from "./api/_dream-match";
 import { analyzeJournalContent, generateMemoryImageResult, normalizeKeyList } from "./api/_lumora";
 
 export default defineConfig(({ mode }) => {
@@ -63,6 +64,19 @@ function lumoraDevApi(env: Record<string, string>): Plugin {
             return;
           }
 
+          if (request.url.startsWith("/api/dream-match")) {
+            sendJson(
+              response,
+              200,
+              await findDreamMatch({
+                supabaseUrl: env.VITE_SUPABASE_URL || env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL,
+                serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+                accessToken: readBearerToken(request.headers.authorization),
+              }),
+            );
+            return;
+          }
+
           next();
         } catch (error) {
           sendJson(response, 500, { error: error instanceof Error ? error.message : "Unexpected API error" });
@@ -94,6 +108,12 @@ function sendJson(response: import("node:http").ServerResponse, status: number, 
   response.statusCode = status;
   response.setHeader("Content-Type", "application/json");
   response.end(JSON.stringify(payload));
+}
+
+function readBearerToken(value: string | string[] | undefined) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const match = raw?.match(/^Bearer\s+(.+)$/i);
+  return match?.[1] || "";
 }
 
 async function saveBeaconDraft(body: Record<string, unknown>, env: Record<string, string>) {

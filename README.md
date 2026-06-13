@@ -14,7 +14,7 @@ npm install
 npm run dev
 ```
 
-Gemini calls are routed through Vercel serverless endpoints in `api/` so the browser never receives provider API keys. For production, add `SUPABASE_SERVICE_ROLE_KEY` in Vercel environment variables to make the unload/beacon save endpoint more reliable; never expose that value with a `VITE_` prefix.
+Gemini calls and real dream matching are routed through Vercel serverless endpoints in `api/` so the browser never receives provider or service-role keys. For production, add `SUPABASE_SERVICE_ROLE_KEY` in Vercel environment variables; it is required for real cross-user dream matching and makes the unload/beacon save endpoint more reliable. Never expose that value with a `VITE_` prefix.
 
 To fail over across multiple provider keys, add comma-separated server-only values in Vercel:
 

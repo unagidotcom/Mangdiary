@@ -70,6 +70,18 @@ type ShareableDream = {
   matchScore: number;
 };
 
+type ActiveDreamMatch = {
+  id: string;
+  score: number;
+  otherProfile: {
+    id: string;
+    displayName: string;
+    avatarUrl: string;
+  };
+  yourDream: ShareableDream;
+  theirDream: ShareableDream;
+};
+
 type CommandView = "archive" | "insights" | "analytics";
 
 type SocialStage = "none" | "consent" | "share" | "chat";
@@ -82,14 +94,6 @@ type ChatMessage = {
 };
 
 const initialNotifications: MockNotification[] = [
-  {
-    id: "match-spiral-library",
-    type: "dream_match",
-    title: "Dream connection",
-    body: "A dreamer shares patterns with your recent entries. Explore?",
-    time: "2 min ago",
-    isRead: false,
-  },
   {
     id: "reflection-ready",
     type: "reflection_ready",
@@ -108,20 +112,7 @@ const initialNotifications: MockNotification[] = [
   },
 ];
 
-const otherPinnedDream: ShareableDream = {
-  id: "other-dream",
-  date: "June 10",
-  excerpt: "A corridor of mirrors opened into a quiet library under violet rain.",
-  content:
-    "A corridor of mirrors opened into a quiet library under violet rain. Every reflection showed a different doorway, but the same silver thread appeared in each room.",
-  matchScore: 0.91,
-};
-
-const initialChatMessages: ChatMessage[] = [
-  { id: "m1", author: "other", body: "This is strange. I had mirrors in mine too.", time: "9:12 PM" },
-  { id: "m2", author: "you", body: "What was at the end of your corridor?", time: "9:14 PM" },
-  { id: "m3", author: "system", body: "No identities are shared unless both dreamers choose that step.", time: "Now" },
-];
+const initialChatMessages: ChatMessage[] = [];
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -481,6 +472,9 @@ function JournalApp({ user }: { user: User }) {
   const [notifications, setNotifications] = useState<MockNotification[]>(initialNotifications);
   const [socialStage, setSocialStage] = useState<SocialStage>("none");
   const [shareAnonymously, setShareAnonymously] = useState(true);
+  const [activeDreamMatch, setActiveDreamMatch] = useState<ActiveDreamMatch | null>(null);
+  const [dreamMatchState, setDreamMatchState] = useState<"idle" | "loading" | "ready" | "empty" | "error">("idle");
+  const [dreamMatchError, setDreamMatchError] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(initialChatMessages);
   const [chatDraft, setChatDraft] = useState("");
 
@@ -793,7 +787,8 @@ function JournalApp({ user }: { user: User }) {
     ];
   }, [content, entries, entry, today]);
 
-  const selectedShareDream = shareableDreams[0];
+  const selectedShareDream = activeDreamMatch?.yourDream || shareableDreams[0];
+  const matchedOtherDream = activeDreamMatch?.theirDream;
   const unreadCount = notifications.filter((item) => !item.isRead).length;
   const canGenerateMemoryImage = content.trim().length >= 40;
 
@@ -901,7 +896,63 @@ function JournalApp({ user }: { user: User }) {
     setNotifications((current) => current.map((item) => (item.id === id ? { ...item, isRead: true } : item)));
   }
 
-  function openDreamMatchFlow(notificationId = "match-spiral-library") {
+  async function refreshDreamMatch() {
+    if (dreamMatchState === "loading") return;
+    setDreamMatchState("loading");
+    setDreamMatchError("");
+
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token || accessTokenRef.current;
+      if (!accessToken) throw new Error("Sign in again to check dream matches.");
+
+      const response = await fetch("/api/dream-match", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({}),
+      });
+      const result = (await response.json()) as { match?: ActiveDreamMatch | null; error?: string };
+      if (!response.ok || result.error) throw new Error(result.error || "Dream matching failed.");
+
+      if (!result.match) {
+        setActiveDreamMatch(null);
+        setDreamMatchState("empty");
+        setNotifications((current) => current.filter((item) => item.id !== "real-dream-match"));
+        return;
+      }
+
+      const match = result.match;
+      setActiveDreamMatch(match);
+      setDreamMatchState("ready");
+      setNotifications((current) => {
+        const withoutPrevious = current.filter((item) => item.id !== "real-dream-match");
+        return [
+          {
+            id: "real-dream-match",
+            type: "dream_match",
+            title: "Dream connection",
+            body: `${match.otherProfile.displayName} shares ${formatMatchScore(match.score)} symbolic overlap with one of your dreams.`,
+            time: "Now",
+            isRead: false,
+          },
+          ...withoutPrevious,
+        ];
+      });
+    } catch (error) {
+      setDreamMatchState("error");
+      setDreamMatchError(error instanceof Error ? error.message : "Dream matching failed.");
+      setNotifications((current) => current.filter((item) => item.id !== "real-dream-match"));
+    }
+  }
+
+  function openDreamMatchFlow(notificationId = "real-dream-match") {
+    if (!activeDreamMatch) {
+      setDreamMatchState("empty");
+      return;
+    }
     markNotificationRead(notificationId);
     setNotificationsOpen(false);
     setSocialStage("consent");
@@ -917,7 +968,7 @@ function JournalApp({ user }: { user: User }) {
 
   function openDreamCircle() {
     setNotifications((current) =>
-      current.map((item) => (item.id === "match-spiral-library" ? { ...item, isRead: true, title: "Dream circle opened" } : item)),
+      current.map((item) => (item.id === "real-dream-match" ? { ...item, isRead: true, title: "Dream circle opened" } : item)),
     );
     setSocialStage("chat");
   }
@@ -1159,7 +1210,10 @@ function JournalApp({ user }: { user: User }) {
           <button
             className={notificationsOpen ? "icon-button notification-button active" : "icon-button notification-button"}
             type="button"
-            onClick={() => setNotificationsOpen((open) => !open)}
+            onClick={() => {
+              setNotificationsOpen((open) => !open);
+              if (!notificationsOpen) void refreshDreamMatch();
+            }}
             aria-label="Notifications"
             title="Notifications"
           >
@@ -1182,6 +1236,8 @@ function JournalApp({ user }: { user: User }) {
         {notificationsOpen ? (
           <NotificationDrawer
             notifications={notifications}
+            matchState={dreamMatchState}
+            matchError={dreamMatchError}
             onClose={() => setNotificationsOpen(false)}
             onMarkAllRead={markAllNotificationsRead}
             onOpenDreamMatch={openDreamMatchFlow}
@@ -1208,13 +1264,15 @@ function JournalApp({ user }: { user: User }) {
         {socialStage === "chat" ? (
           <DreamCircleChat
             yourDream={selectedShareDream}
-            theirDream={otherPinnedDream}
+            theirDream={matchedOtherDream}
             anonymous={shareAnonymously}
             messages={chatMessages}
             draft={chatDraft}
             currentUserName={profileForm.display_name || profileForm.username || user.email?.split("@")[0] || "You"}
             currentUserAvatar={profileAvatar(user)}
             currentUserInitials={profileInitials(user, profileForm)}
+            otherUserName={activeDreamMatch?.otherProfile.displayName || "Matched dreamer"}
+            otherUserAvatar={activeDreamMatch?.otherProfile.avatarUrl || ""}
             onBack={() => setSocialStage("none")}
             onDraftChange={setChatDraft}
             onSend={sendChatMessage}
@@ -1569,6 +1627,8 @@ function SearchPanel({
 
 function NotificationDrawer({
   notifications,
+  matchState,
+  matchError,
   onClose,
   onMarkAllRead,
   onOpenDreamMatch,
@@ -1576,6 +1636,8 @@ function NotificationDrawer({
   onReadNotification,
 }: {
   notifications: MockNotification[];
+  matchState: "idle" | "loading" | "ready" | "empty" | "error";
+  matchError: string;
   onClose: () => void;
   onMarkAllRead: () => void;
   onOpenDreamMatch: (id: string) => void;
@@ -1600,6 +1662,9 @@ function NotificationDrawer({
       <button className="text-button notification-read-all" type="button" onClick={onMarkAllRead}>
         Mark all read
       </button>
+      {matchState === "loading" ? <p className="notification-status">Checking real dream matches...</p> : null}
+      {matchState === "empty" ? <p className="notification-status">No real dream match yet. More dream entries from matching-enabled users will improve this.</p> : null}
+      {matchState === "error" ? <p className="notification-status error">{matchError}</p> : null}
       <div className="notification-list">
         {notifications.map((item) => (
           <article className={item.isRead ? "notification-item" : "notification-item unread"} key={item.id}>
@@ -1735,18 +1800,22 @@ function DreamCircleChat({
   currentUserName,
   currentUserAvatar,
   currentUserInitials,
+  otherUserName,
+  otherUserAvatar,
   onBack,
   onDraftChange,
   onSend,
 }: {
   yourDream?: ShareableDream;
-  theirDream: ShareableDream;
+  theirDream?: ShareableDream;
   anonymous: boolean;
   messages: ChatMessage[];
   draft: string;
   currentUserName: string;
   currentUserAvatar: string;
   currentUserInitials: string;
+  otherUserName: string;
+  otherUserAvatar: string;
   onBack: () => void;
   onDraftChange: (value: string) => void;
   onSend: () => void;
@@ -1788,6 +1857,8 @@ function DreamCircleChat({
             currentUserName,
             currentUserAvatar,
             currentUserInitials,
+            otherUserName,
+            otherUserAvatar,
           });
 
           return (
@@ -1849,6 +1920,8 @@ function chatSenderFor(
     currentUserName: string;
     currentUserAvatar: string;
     currentUserInitials: string;
+    otherUserName: string;
+    otherUserAvatar: string;
   },
 ) {
   if (author === "you") {
@@ -1861,9 +1934,9 @@ function chatSenderFor(
 
   if (author === "other") {
     return {
-      name: "Other dreamer",
-      avatarUrl: "",
-      initials: "OD",
+      name: context.otherUserName,
+      avatarUrl: context.otherUserAvatar,
+      initials: initialsForName(context.otherUserName, "MD"),
     };
   }
 
@@ -2508,16 +2581,20 @@ function buildExtraLinks(form: ProfileForm) {
   return form.website_url ? { website: form.website_url } : {};
 }
 
-function profileInitials(user: User, form: ProfileForm) {
-  const source = form.display_name || form.username || user.email || "MD";
-  const initials = source
+function initialsForName(value: string, fallback: string) {
+  const initials = value
     .replace(/@.*/, "")
     .split(/[\s._-]+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("");
-  return initials || "MD";
+  return initials || fallback;
+}
+
+function profileInitials(user: User, form: ProfileForm) {
+  const source = form.display_name || form.username || user.email || "MD";
+  return initialsForName(source, "MD");
 }
 
 function profileAvatar(user: User) {

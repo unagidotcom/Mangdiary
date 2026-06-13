@@ -594,6 +594,23 @@ body[data-theme="night"] h6 {
   line-height: 1.2;
 }
 
+.notification-status {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--paper-soft) 76%, transparent);
+  color: var(--text-secondary);
+  padding: 9px 10px;
+  font-size: var(--type-small);
+  line-height: 1.42;
+}
+
+.notification-status.error {
+  border-color: color-mix(in srgb, #a84632 38%, var(--color-border));
+  background: color-mix(in srgb, #a84632 10%, var(--paper-soft));
+  color: #a84632;
+}
+
 .notification-list {
   display: grid;
   gap: 8px;
