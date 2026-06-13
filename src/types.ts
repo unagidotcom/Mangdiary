@@ -16,6 +16,20 @@ export type JournalEntry = {
   updated_at: string;
 };
 
+export type UserProfile = {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+  bio: string | null;
+  instagram_handle: string | null;
+  tiktok_handle: string | null;
+  extra_links: Record<string, string> | null;
+  matching_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export type EntryInsight = {
   summary: string;
   reflection: string;
