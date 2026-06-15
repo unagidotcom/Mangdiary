@@ -93,24 +93,7 @@ type ChatMessage = {
   time: string;
 };
 
-const initialNotifications: MockNotification[] = [
-  {
-    id: "reflection-ready",
-    type: "reflection_ready",
-    title: "Your reflection is ready",
-    body: "June 12 entry",
-    time: "Yesterday",
-    isRead: false,
-  },
-  {
-    id: "memory-image",
-    type: "memory_image",
-    title: "Memory image generated",
-    body: "June 11 entry",
-    time: "2 days ago",
-    isRead: true,
-  },
-];
+const initialNotifications: MockNotification[] = [];
 
 const initialChatMessages: ChatMessage[] = [];
 
@@ -1015,7 +998,7 @@ function JournalApp({ user }: { user: User }) {
 
   function openDreamCircle() {
     setNotifications((current) =>
-      current.map((item) => (item.id === "real-dream-match" ? { ...item, isRead: true, title: "Dream circle opened" } : item)),
+      current.map((item) => (item.id === "real-dream-match" ? { ...item, isRead: true } : item)),
     );
     setSocialStage("chat");
   }
@@ -1386,7 +1369,6 @@ function JournalApp({ user }: { user: User }) {
             <NotificationDrawer
               notifications={notifications}
               matchState={dreamMatchState}
-              matchError={dreamMatchError}
               onClose={() => setNotificationsOpen(false)}
               onMarkAllRead={markAllNotificationsRead}
               onOpenDreamMatch={openDreamMatchFlow}
@@ -1828,7 +1810,6 @@ function SearchPanel({
 function NotificationDrawer({
   notifications,
   matchState,
-  matchError,
   onClose,
   onMarkAllRead,
   onOpenDreamMatch,
@@ -1837,7 +1818,6 @@ function NotificationDrawer({
 }: {
   notifications: MockNotification[];
   matchState: "idle" | "loading" | "ready" | "empty" | "error";
-  matchError: string;
   onClose: () => void;
   onMarkAllRead: () => void;
   onOpenDreamMatch: (id: string) => void;
@@ -1863,8 +1843,9 @@ function NotificationDrawer({
         Mark all read
       </button>
       {matchState === "loading" ? <p className="notification-status">Checking real dream matches...</p> : null}
-      {matchState === "empty" ? <p className="notification-status">No real dream match yet. More dream entries from matching-enabled users will improve this.</p> : null}
-      {matchState === "error" ? <p className="notification-status error">{matchError}</p> : null}
+      {notifications.length === 0 && matchState !== "loading" ? (
+        <p className="notification-status">If something matches, it will show here.</p>
+      ) : null}
       <div className="notification-list">
         {notifications.map((item) => (
           <article className={item.isRead ? "notification-item" : "notification-item unread"} key={item.id}>
