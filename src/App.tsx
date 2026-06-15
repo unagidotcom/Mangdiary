@@ -53,13 +53,34 @@ const emptyInsight: EntryInsight = {
 const draftKeyFor = (entryId: string) => `lumora-draft-${entryId}`;
 const welcomeSeenKey = "mangdiary-welcome-seen";
 
-type MockNotification = {
+type AppNotification = {
   id: string;
   type: "dream_match" | "reflection_ready" | "memory_image" | "accepted_share" | "system";
   title: string;
   body: string;
   time: string;
   isRead: boolean;
+  relatedMatchId: string | null;
+  relatedEntryId: string | null;
+};
+
+type DbNotification = {
+  id: string;
+  type: AppNotification["type"];
+  title: string;
+  body: string | null;
+  is_read: boolean;
+  related_match_id: string | null;
+  related_entry_id: string | null;
+  created_at: string;
+};
+
+type DbCircleMessage = {
+  id: string;
+  circle_id: string;
+  sender_id: string;
+  content: string;
+  created_at: string;
 };
 
 type ShareableDream = {
@@ -92,10 +113,6 @@ type ChatMessage = {
   body: string;
   time: string;
 };
-
-const initialNotifications: MockNotification[] = [];
-
-const initialChatMessages: ChatMessage[] = [];
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -499,13 +516,16 @@ function JournalApp({ user }: { user: User }) {
   const [passwordState, setPasswordState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [passwordError, setPasswordError] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [notifications, setNotifications] = useState<MockNotification[]>(initialNotifications);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [socialStage, setSocialStage] = useState<SocialStage>("none");
   const [shareAnonymously, setShareAnonymously] = useState(true);
   const [activeDreamMatch, setActiveDreamMatch] = useState<ActiveDreamMatch | null>(null);
   const [dreamMatchState, setDreamMatchState] = useState<"idle" | "loading" | "ready" | "empty" | "error">("idle");
   const [dreamMatchError, setDreamMatchError] = useState("");
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(initialChatMessages);
+  const [activeCircleId, setActiveCircleId] = useState<string | null>(null);
+  const [circleState, setCircleState] = useState<"idle" | "opening" | "ready" | "error">("idle");
+  const [circleError, setCircleError] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
 
   useEffect(() => {
@@ -544,6 +564,27 @@ function JournalApp({ user }: { user: User }) {
   useEffect(() => {
     void loadProfile();
   }, [loadProfile]);
+
+  const loadNotifications = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("notifications")
+      .select("id, type, title, body, is_read, related_match_id, related_entry_id, created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(25)
+      .returns<DbNotification[]>();
+
+    if (error) {
+      setNotifications([]);
+      return;
+    }
+
+    setNotifications((data || []).map(notificationFromDb));
+  }, [user.id]);
+
+  useEffect(() => {
+    void loadNotifications();
+  }, [loadNotifications]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -792,32 +833,7 @@ function JournalApp({ user }: { user: User }) {
     return matches.slice(0, 12);
   }, [entries, query]);
 
-  const shareableDreams = useMemo<ShareableDream[]>(() => {
-    const fromEntries = entries
-      .filter((item) => item.content.trim().length > 0)
-      .slice(0, 4)
-      .map((item) => ({
-        id: item.id,
-        date: longDate(item.entry_date),
-        excerpt: entryExcerpt(item.content),
-        content: item.content,
-        matchScore: mockDreamMatchScore(item),
-      }))
-      .sort((a, b) => b.matchScore - a.matchScore);
-
-    if (fromEntries.length) return fromEntries;
-    return [
-      {
-        id: entry?.id || "current-dream",
-        date: entry ? longDate(entry.entry_date) : longDate(today),
-        excerpt: entryExcerpt(content) || "The current page is ready to become a shared dream preview.",
-        content: content || "The current page is ready to become a shared dream preview.",
-        matchScore: mockTextMatchScore(content),
-      },
-    ];
-  }, [content, entries, entry, today]);
-
-  const selectedShareDream = activeDreamMatch?.yourDream || shareableDreams[0];
+  const selectedShareDream = activeDreamMatch?.yourDream;
   const matchedOtherDream = activeDreamMatch?.theirDream;
   const unreadCount = notifications.filter((item) => !item.isRead).length;
   const canGenerateMemoryImage = content.trim().length >= 40;
@@ -918,12 +934,26 @@ function JournalApp({ user }: { user: User }) {
     }
   }
 
-  function markAllNotificationsRead() {
+  async function markAllNotificationsRead() {
     setNotifications((current) => current.map((item) => ({ ...item, isRead: true })));
+    await supabase.from("notifications").update({ is_read: true }).eq("user_id", user.id).eq("is_read", false);
+    await loadNotifications();
   }
 
-  function markNotificationRead(id: string) {
+  async function markNotificationRead(id: string) {
     setNotifications((current) => current.map((item) => (item.id === id ? { ...item, isRead: true } : item)));
+    await supabase.from("notifications").update({ is_read: true }).eq("id", id).eq("user_id", user.id);
+    await loadNotifications();
+  }
+
+  async function markMatchNotificationsRead(matchId: string) {
+    setNotifications((current) => current.map((item) => (item.relatedMatchId === matchId ? { ...item, isRead: true } : item)));
+    await supabase
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("user_id", user.id)
+      .eq("related_match_id", matchId);
+    await loadNotifications();
   }
 
   async function refreshDreamMatch() {
@@ -950,31 +980,18 @@ function JournalApp({ user }: { user: User }) {
       if (!result.match) {
         setActiveDreamMatch(null);
         setDreamMatchState("empty");
-        setNotifications((current) => current.filter((item) => item.id !== "real-dream-match"));
+        await loadNotifications();
         return;
       }
 
       const match = result.match;
       setActiveDreamMatch(match);
       setDreamMatchState("ready");
-      setNotifications((current) => {
-        const withoutPrevious = current.filter((item) => item.id !== "real-dream-match");
-        return [
-          {
-            id: "real-dream-match",
-            type: "dream_match",
-            title: "Dream connection",
-            body: `${match.otherProfile.displayName} shares ${formatMatchScore(match.score)} symbolic overlap with one of your dreams.`,
-            time: "Now",
-            isRead: false,
-          },
-          ...withoutPrevious,
-        ];
-      });
+      await loadNotifications();
     } catch (error) {
       setDreamMatchState("error");
       setDreamMatchError(error instanceof Error ? error.message : "Dream matching failed.");
-      setNotifications((current) => current.filter((item) => item.id !== "real-dream-match"));
+      await loadNotifications();
     }
   }
 
@@ -983,34 +1000,96 @@ function JournalApp({ user }: { user: User }) {
       setDreamMatchState("empty");
       return;
     }
-    markNotificationRead(notificationId);
+    void markNotificationRead(notificationId);
     setNotificationsOpen(false);
     setSocialStage("consent");
   }
 
   function skipDreamMatch(notificationId: string) {
-    markNotificationRead(notificationId);
+    void markNotificationRead(notificationId);
   }
 
   function openShareChoice() {
     setSocialStage("share");
   }
 
-  function openDreamCircle() {
-    setNotifications((current) =>
-      current.map((item) => (item.id === "real-dream-match" ? { ...item, isRead: true } : item)),
-    );
-    setSocialStage("chat");
+  async function loadCircleMessages(circleId: string) {
+    const { data, error } = await supabase
+      .from("circle_messages")
+      .select("id, circle_id, sender_id, content, created_at")
+      .eq("circle_id", circleId)
+      .order("created_at", { ascending: true })
+      .limit(100)
+      .returns<DbCircleMessage[]>();
+
+    if (error) {
+      setCircleState("error");
+      setCircleError(error.message);
+      setChatMessages([]);
+      return false;
+    }
+
+    setChatMessages((data || []).map((message) => messageFromDb(message, user.id)));
+    return true;
   }
 
-  function sendChatMessage() {
+  async function openDreamCircle() {
+    if (!activeDreamMatch) return;
+    setCircleState("opening");
+    setCircleError("");
+
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token || accessTokenRef.current;
+      if (!accessToken) throw new Error("Sign in again to open Dream Circle.");
+
+      const response = await fetch("/api/dream-circle", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          action: "open",
+          matchId: activeDreamMatch.id,
+          entryId: activeDreamMatch.yourDream.id,
+          anonymous: shareAnonymously,
+        }),
+      });
+      const result = await readJsonResponse<{ circleId?: string; error?: string }>(response);
+      if (!response.ok || !result.circleId || result.error) throw new Error(result.error || "Dream Circle could not open.");
+
+      setActiveCircleId(result.circleId);
+      await markMatchNotificationsRead(activeDreamMatch.id);
+      const messagesLoaded = await loadCircleMessages(result.circleId);
+      if (!messagesLoaded) return;
+      setCircleState("ready");
+      setSocialStage("chat");
+    } catch (error) {
+      setCircleState("error");
+      setCircleError(error instanceof Error ? error.message : "Dream Circle could not open.");
+    }
+  }
+
+  async function sendChatMessage() {
     const nextMessage = chatDraft.trim();
-    if (!nextMessage) return;
-    setChatMessages((current) => [
-      ...current,
-      { id: `local-${Date.now()}`, author: "you", body: nextMessage, time: "Now" },
-    ]);
+    if (!nextMessage || !activeCircleId) return;
     setChatDraft("");
+
+    const { error } = await supabase.from("circle_messages").insert({
+      circle_id: activeCircleId,
+      sender_id: user.id,
+      content: nextMessage,
+    });
+
+    if (error) {
+      setCircleState("error");
+      setCircleError(error.message);
+      setChatDraft(nextMessage);
+      return;
+    }
+
+    await loadCircleMessages(activeCircleId);
   }
 
   function clearTimelineGesture() {
@@ -1387,6 +1466,8 @@ function JournalApp({ user }: { user: User }) {
           <ShareDreamOverlay
             dream={selectedShareDream}
             anonymous={shareAnonymously}
+            state={circleState}
+            error={circleError}
             onBack={() => setSocialStage("consent")}
             onClose={() => setSocialStage("none")}
             onAnonymousChange={setShareAnonymously}
@@ -1405,6 +1486,8 @@ function JournalApp({ user }: { user: User }) {
             currentUserInitials={profileInitials(user, profileForm)}
             otherUserName={activeDreamMatch?.otherProfile.displayName || "Matched dreamer"}
             otherUserAvatar={activeDreamMatch?.otherProfile.avatarUrl || ""}
+            state={circleState}
+            error={circleError}
             onBack={() => setSocialStage("none")}
             onDraftChange={setChatDraft}
             onSend={sendChatMessage}
@@ -1816,7 +1899,7 @@ function NotificationDrawer({
   onSkipDreamMatch,
   onReadNotification,
 }: {
-  notifications: MockNotification[];
+  notifications: AppNotification[];
   matchState: "idle" | "loading" | "ready" | "empty" | "error";
   onClose: () => void;
   onMarkAllRead: () => void;
@@ -1915,6 +1998,8 @@ function MatchConsentOverlay({
 function ShareDreamOverlay({
   dream,
   anonymous,
+  state,
+  error,
   onBack,
   onClose,
   onAnonymousChange,
@@ -1922,11 +2007,15 @@ function ShareDreamOverlay({
 }: {
   dream?: ShareableDream;
   anonymous: boolean;
+  state: "idle" | "opening" | "ready" | "error";
+  error: string;
   onBack: () => void;
   onClose: () => void;
   onAnonymousChange: (value: boolean) => void;
   onShare: () => void;
 }) {
+  const opening = state === "opening";
+
   return (
     <motion.section
       className="social-overlay"
@@ -1965,8 +2054,11 @@ function ShareDreamOverlay({
             Anonymous
           </label>
         </div>
-        <button className="social-primary" type="button" onClick={onShare}>Share this dream</button>
-        <small>You can revoke access later. This mock flow does not send anything yet.</small>
+        {error ? <p className="social-error">{error}</p> : null}
+        <button className="social-primary" type="button" onClick={onShare} disabled={!dream || opening}>
+          {opening ? "Opening..." : "Share this dream"}
+        </button>
+        <small>You can revoke access later from your Dream Circle.</small>
       </div>
     </motion.section>
   );
@@ -1983,6 +2075,8 @@ function DreamCircleChat({
   currentUserInitials,
   otherUserName,
   otherUserAvatar,
+  state,
+  error,
   onBack,
   onDraftChange,
   onSend,
@@ -1997,6 +2091,8 @@ function DreamCircleChat({
   currentUserInitials: string;
   otherUserName: string;
   otherUserAvatar: string;
+  state: "idle" | "opening" | "ready" | "error";
+  error: string;
   onBack: () => void;
   onDraftChange: (value: string) => void;
   onSend: () => void;
@@ -2025,13 +2121,15 @@ function DreamCircleChat({
       <section className="pinned-dreams" aria-label="Shared dreams">
         <div className="pinned-label">Shared dreams</div>
         <div className="pinned-grid">
-          <PinnedDreamCard label={anonymous ? "Silver Moon" : "Your dream"} dream={yourDream} />
+          <PinnedDreamCard label={anonymous ? "Anonymous" : "Your dream"} dream={yourDream} />
           <PinnedDreamCard label="Other dreamer" dream={theirDream} />
         </div>
       </section>
 
       <div className="chat-stream">
-        <span className="chat-day">Today</span>
+        <span className="chat-day">Messages</span>
+        {state === "error" && error ? <p className="social-error">{error}</p> : null}
+        {messages.length === 0 && state !== "error" ? <p className="chat-empty">No messages yet.</p> : null}
         {messages.map((message) => {
           const sender = chatSenderFor(message.author, {
             anonymous,
@@ -2107,9 +2205,9 @@ function chatSenderFor(
 ) {
   if (author === "you") {
     return {
-      name: context.anonymous ? "Silver Moon" : context.currentUserName,
+      name: context.anonymous ? "Anonymous" : context.currentUserName,
       avatarUrl: context.anonymous ? "" : context.currentUserAvatar,
-      initials: context.anonymous ? "SM" : context.currentUserInitials,
+      initials: context.anonymous ? "AN" : context.currentUserInitials,
     };
   }
 
@@ -2128,7 +2226,44 @@ function chatSenderFor(
   };
 }
 
-function notificationIcon(type: MockNotification["type"]) {
+function notificationFromDb(item: DbNotification): AppNotification {
+  return {
+    id: item.id,
+    type: item.type,
+    title: item.title,
+    body: item.body || "",
+    time: relativeTimeLabel(item.created_at),
+    isRead: item.is_read,
+    relatedMatchId: item.related_match_id,
+    relatedEntryId: item.related_entry_id,
+  };
+}
+
+function messageFromDb(item: DbCircleMessage, userId: string): ChatMessage {
+  return {
+    id: item.id,
+    author: item.sender_id === userId ? "you" : "other",
+    body: item.content,
+    time: relativeTimeLabel(item.created_at),
+  };
+}
+
+function relativeTimeLabel(value: string) {
+  const createdAt = new Date(value).getTime();
+  const diffMs = Date.now() - createdAt;
+  if (!Number.isFinite(diffMs) || diffMs < 0) return editedDateTime(value, false);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (diffMs < minute) return "Now";
+  if (diffMs < hour) return `${Math.floor(diffMs / minute)} min ago`;
+  if (diffMs < day) return `${Math.floor(diffMs / hour)} hr ago`;
+  if (diffMs < 2 * day) return "Yesterday";
+  if (diffMs < 7 * day) return `${Math.floor(diffMs / day)} days ago`;
+  return editedDateTime(value, false);
+}
+
+function notificationIcon(type: AppNotification["type"]) {
   if (type === "dream_match") return <Sparkles />;
   if (type === "reflection_ready") return <Star />;
   if (type === "memory_image") return <Image />;
@@ -2720,20 +2855,6 @@ function entryExcerpt(value: string) {
   const normalized = value.trim().replace(/\s+/g, " ");
   if (!normalized) return "";
   return normalized.length > 116 ? `${normalized.slice(0, 113)}...` : normalized;
-}
-
-function mockDreamMatchScore(entry: JournalEntry) {
-  const base = mockTextMatchScore(entry.content);
-  const insightBoost = (entry.themes?.length || 0) * 0.015 + (entry.mood ? 0.025 : 0);
-  return Math.min(0.96, base + insightBoost);
-}
-
-function mockTextMatchScore(value: string) {
-  const text = value.toLowerCase();
-  const dreamSignals = ["dream", "mirror", "water", "river", "train", "library", "door", "corridor", "floating", "memory"];
-  const signalScore = dreamSignals.reduce((score, signal) => score + (text.includes(signal) ? 0.035 : 0), 0);
-  const lengthScore = Math.min(0.18, value.trim().split(/\s+/).filter(Boolean).length / 600);
-  return Math.min(0.94, 0.58 + signalScore + lengthScore);
 }
 
 function formatMatchScore(score: number) {

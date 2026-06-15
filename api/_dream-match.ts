@@ -153,6 +153,7 @@ export async function findDreamMatch(options: DreamMatchOptions): Promise<DreamM
   const matchId = await persistMatch(supabase, user.id, best.other.user_id, best.current, best.other, best.score);
   const otherProfile = profileById.get(best.other.user_id);
   const otherName = otherProfile?.display_name || otherProfile?.username || "Matched dreamer";
+  await persistMatchNotification(supabase, user.id, matchId, best.current.id, otherName, best.score);
 
   return {
     match: {
@@ -248,7 +249,7 @@ async function persistMatch(
   other: DbEntry,
   score: number,
 ) {
-  const { data } = (await supabase
+  const { data, error } = (await supabase
     .from("dream_matches")
     .insert({
       user_a_id: userId,
@@ -259,7 +260,51 @@ async function persistMatch(
       status: "pending",
     })
     .select("id")
-    .maybeSingle()) as { data: { id?: string } | null };
+    .maybeSingle()) as { data: { id?: string } | null; error: Error | null };
 
-  return data?.id || `${current.id}:${other.id}`;
+  if (error) {
+    const { data: existingMatches } = (await supabase
+      .from("dream_matches")
+      .select("id, entry_a_id, entry_b_id")
+      .or(`and(user_a_id.eq.${userId},user_b_id.eq.${otherUserId}),and(user_a_id.eq.${otherUserId},user_b_id.eq.${userId})`)
+      .limit(25)) as { data: Array<{ id?: string; entry_a_id?: string | null; entry_b_id?: string | null }> | null };
+
+    const existing = (existingMatches || []).find((match) => {
+      const entries = new Set([match.entry_a_id, match.entry_b_id]);
+      return entries.has(current.id) && entries.has(other.id);
+    });
+    if (existing?.id) return existing.id;
+    throw error;
+  }
+
+  if (!data?.id) throw new Error("Dream match could not be saved.");
+  return data.id;
+}
+
+async function persistMatchNotification(
+  supabase: ReturnType<typeof createClient<any>>,
+  userId: string,
+  matchId: string,
+  entryId: string,
+  otherName: string,
+  score: number,
+) {
+  const { data: existing } = await supabase
+    .from("notifications")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("type", "dream_match")
+    .eq("related_match_id", matchId)
+    .maybeSingle<{ id: string }>();
+
+  if (existing?.id) return;
+
+  await supabase.from("notifications").insert({
+    user_id: userId,
+    type: "dream_match",
+    title: "Dream connection",
+    body: `${otherName} shares ${Math.round(score * 100)}% symbolic overlap with one of your dreams.`,
+    related_match_id: matchId,
+    related_entry_id: entryId,
+  });
 }

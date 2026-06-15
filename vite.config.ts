@@ -1,8 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { findDreamMatch } from "./api/_dream-match";
-import { analyzeJournalContent, generateMemoryImageResult, normalizeKeyList } from "./api/_lumora";
+import dreamCircleHandler from "./api/dream-circle.js";
+import { findDreamMatch } from "./api/_dream-match.js";
+import { analyzeJournalContent, generateMemoryImageResult, normalizeKeyList } from "./api/_lumora.js";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -77,11 +78,29 @@ function lumoraDevApi(env: Record<string, string>): Plugin {
             return;
           }
 
+          if (request.url.startsWith("/api/dream-circle")) {
+            (request as typeof request & { body?: Record<string, unknown> }).body = body;
+            await dreamCircleHandler(request as never, vercelReply(response) as never);
+            return;
+          }
+
           next();
         } catch (error) {
           sendJson(response, 500, { error: error instanceof Error ? error.message : "Unexpected API error" });
         }
       });
+    },
+  };
+}
+
+function vercelReply(response: import("node:http").ServerResponse) {
+  return {
+    status(statusCode: number) {
+      return {
+        json(payload: unknown) {
+          sendJson(response, statusCode, payload);
+        },
+      };
     },
   };
 }

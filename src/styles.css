@@ -696,6 +696,17 @@ body[data-theme="night"] h6 {
   color: #a84632;
 }
 
+.social-error {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, #a84632 38%, var(--color-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, #a84632 10%, var(--paper-soft));
+  color: #a84632;
+  padding: 9px 10px;
+  font-size: var(--type-small);
+  line-height: 1.42;
+}
+
 .notification-list {
   display: grid;
   gap: 8px;
@@ -1126,6 +1137,17 @@ body[data-theme="night"] h6 {
   align-self: center;
   color: rgba(244, 242, 255, 0.54);
   font-size: var(--type-caption);
+}
+
+.chat-empty {
+  justify-self: center;
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(244, 242, 255, 0.68);
+  padding: 10px 12px;
+  font-size: var(--type-small);
 }
 
 .chat-row {

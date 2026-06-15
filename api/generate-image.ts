@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { generateMemoryImageResult, normalizeKeyList } from "./_lumora";
+import { generateMemoryImageResult, normalizeKeyList } from "./_lumora.js";
 
 type GenerateImageRequest = {
   content?: string;

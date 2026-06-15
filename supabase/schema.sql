@@ -169,11 +169,15 @@ foreign key (related_match_id) references public.dream_matches(id) on delete set
 
 create table if not exists public.dream_circles (
   id uuid primary key default gen_random_uuid(),
+  related_match_id uuid references public.dream_matches(id) on delete set null,
   name text,
   created_by uuid not null references auth.users(id) on delete cascade,
   created_at timestamptz not null default now(),
   archived_at timestamptz
 );
+
+alter table if exists public.dream_circles
+add column if not exists related_match_id uuid references public.dream_matches(id) on delete set null;
 
 create table if not exists public.circle_members (
   id uuid primary key default gen_random_uuid(),
@@ -389,6 +393,10 @@ on public.dream_matches (user_a_id, created_at desc);
 
 create index if not exists dream_matches_user_b_idx
 on public.dream_matches (user_b_id, created_at desc);
+
+create unique index if not exists dream_circles_related_match_unique
+on public.dream_circles (related_match_id)
+where related_match_id is not null;
 
 create index if not exists circle_members_user_idx
 on public.circle_members (user_id, joined_at desc);

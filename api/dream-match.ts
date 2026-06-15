@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { findDreamMatch } from "./_dream-match";
+import { findDreamMatch } from "./_dream-match.js";
 
 export default async function handler(request: VercelRequest, reply: VercelResponse) {
   try {
