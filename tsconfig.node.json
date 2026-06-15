@@ -7,5 +7,12 @@
     "noEmit": true,
     "allowSyntheticDefaultImports": true
   },
-  "include": ["vite.config.ts", "api/_lumora.ts", "api/_dream-match.ts", "api/dream-circle.ts"]
+  "include": [
+    "vite.config.ts",
+    "api/_lumora.ts",
+    "api/_dream-match.ts",
+    "api/dream-circle.ts",
+    "api/dream-match-cron.ts",
+    "api/password-login.ts"
+  ]
 }

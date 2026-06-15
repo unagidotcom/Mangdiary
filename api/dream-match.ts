@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { findDreamMatch } from "./_dream-match.js";
-import { normalizeKeyList } from "./_lumora.js";
+import { getDreamMatchById } from "./_dream-match.js";
 
 export default async function handler(request: VercelRequest, reply: VercelResponse) {
   try {
@@ -9,17 +8,15 @@ export default async function handler(request: VercelRequest, reply: VercelRespo
     }
 
     const accessToken = readBearerToken(request.headers.authorization);
-    const result = await findDreamMatch({
+    const body = readBody(request);
+    const result = await getDreamMatchById({
       supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
       serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
       accessToken,
-      geminiApiKeys: normalizeKeyList([process.env.GEMINI_API_KEY || "", process.env.GEMINI_API_KEYS || ""]),
-      geminiEmbeddingModel: process.env.GEMINI_EMBEDDING_MODEL,
-      openAiApiKey: process.env.OPENAI_API_KEY,
-      embeddingModel: process.env.OPENAI_EMBEDDING_MODEL,
+      matchId: body.matchId,
     });
 
-    return reply.status(result.error ? 503 : 200).json(result);
+    return reply.status(result.error ? 400 : 200).json(result);
   } catch (error) {
     console.error("dream-match failed", error);
     return reply.status(500).json({
@@ -32,4 +29,11 @@ export default async function handler(request: VercelRequest, reply: VercelRespo
 function readBearerToken(value?: string) {
   const match = value?.match(/^Bearer\s+(.+)$/i);
   return match?.[1] || "";
+}
+
+function readBody(request: VercelRequest): { matchId?: string } {
+  if (!request.body) return {};
+  if (typeof request.body === "string") return JSON.parse(request.body) as { matchId?: string };
+  if (Buffer.isBuffer(request.body)) return JSON.parse(request.body.toString("utf8")) as { matchId?: string };
+  return request.body as { matchId?: string };
 }

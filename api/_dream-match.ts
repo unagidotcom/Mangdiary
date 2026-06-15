@@ -10,6 +10,7 @@ type DbEntry = {
   entry_date: string;
   entry_index: number;
   created_at: string;
+  updated_at?: string;
 };
 
 type DbProfile = {
@@ -57,6 +58,28 @@ type DreamMatchOptions = {
   geminiEmbeddingModel?: string;
   openAiApiKey?: string;
   embeddingModel?: string;
+  maxEmbeddingGenerations?: number;
+};
+
+type DreamMatchByIdOptions = DreamMatchOptions & {
+  matchId?: string;
+};
+
+type NightlyDreamMatchOptions = Omit<DreamMatchOptions, "accessToken"> & {
+  sourceWindowHours?: number;
+  maxSourceEntries?: number;
+  maxPoolEntries?: number;
+  maxMatchesPerEntry?: number;
+  maxScoredCandidatesPerEntry?: number;
+};
+
+export type NightlyDreamMatchResult = {
+  scannedEntries: number;
+  scoredPairs: number;
+  matchesCreated: number;
+  existingMatchesSkipped: number;
+  notificationsCreated: number;
+  errors: string[];
 };
 
 type TermProfile = {
@@ -78,11 +101,18 @@ type ScoreParts = {
 type EmbeddingRuntime = {
   cache: Map<string, number[] | null>;
   generatedCount: number;
+  limit: number;
 };
 
 const MATCH_THRESHOLD = 0.3;
 const CANDIDATE_LIMIT = 60;
 const EMBEDDING_GENERATION_LIMIT = 16;
+const NIGHTLY_EMBEDDING_GENERATION_LIMIT = 160;
+const NIGHTLY_SOURCE_WINDOW_HOURS = 36;
+const NIGHTLY_SOURCE_LIMIT = 80;
+const NIGHTLY_POOL_LIMIT = 1500;
+const NIGHTLY_MATCHES_PER_ENTRY = 1;
+const NIGHTLY_CANDIDATES_PER_ENTRY = 80;
 const EMBEDDING_DIMENSIONS = 1536;
 const DEFAULT_GEMINI_EMBEDDING_MODEL = "gemini-embedding-2";
 const DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
@@ -186,7 +216,7 @@ export async function findDreamMatch(options: DreamMatchOptions): Promise<DreamM
   const viableOtherEntries = (otherEntries || []).filter((entry) => wordCount(entry.content) >= 8);
   const patternsByUser = buildUserPatterns([...ownEntries, ...viableOtherEntries]);
   const candidates = buildPreliminaryCandidates(ownEntries, viableOtherEntries, patternsByUser);
-  const runtime: EmbeddingRuntime = { cache: new Map(), generatedCount: 0 };
+  const runtime: EmbeddingRuntime = { cache: new Map(), generatedCount: 0, limit: options.maxEmbeddingGenerations || EMBEDDING_GENERATION_LIMIT };
 
   let best: { current: DbEntry; other: DbEntry; score: number } | null = null;
   for (const candidate of candidates) {
@@ -196,17 +226,17 @@ export async function findDreamMatch(options: DreamMatchOptions): Promise<DreamM
 
   if (!best || best.score < MATCH_THRESHOLD) return { match: null };
 
-  const matchId = await persistMatch(supabase, user.id, best.other.user_id, best.current, best.other, best.score);
+  const matchResult = await persistMatch(supabase, user.id, best.other.user_id, best.current, best.other, best.score);
   const otherProfile = profileById.get(best.other.user_id);
   const otherName = otherProfile?.display_name || otherProfile?.username || "Matched dreamer";
   await Promise.all([
-    persistMatchNotification(supabase, user.id, matchId, best.current.id, best.score),
-    persistMatchNotification(supabase, best.other.user_id, matchId, best.other.id, best.score),
+    persistMatchNotification(supabase, user.id, matchResult.id, best.current.id, best.score),
+    persistMatchNotification(supabase, best.other.user_id, matchResult.id, best.other.id, best.score),
   ]);
 
   return {
     match: {
-      id: matchId,
+      id: matchResult.id,
       score: best.score,
       otherProfile: {
         id: best.other.user_id,
@@ -220,6 +250,169 @@ export async function findDreamMatch(options: DreamMatchOptions): Promise<DreamM
       },
     },
   };
+}
+
+export async function getDreamMatchById(options: DreamMatchByIdOptions): Promise<DreamMatchResponse> {
+  if (!options.supabaseUrl || !options.serviceRoleKey) {
+    return { match: null, error: "Dream matching needs SUPABASE_SERVICE_ROLE_KEY on the server." };
+  }
+  if (!options.accessToken) return { match: null, error: "Missing user session." };
+  if (!options.matchId) return { match: null, error: "Missing dream match." };
+
+  const supabase = createClient(options.supabaseUrl, options.serviceRoleKey, { auth: { persistSession: false } });
+  const { data: authData, error: authError } = await supabase.auth.getUser(options.accessToken);
+  const user = authData.user;
+  if (authError || !user) return { match: null, error: "User session could not be verified." };
+
+  const { data: match, error: matchError } = await supabase
+    .from("dream_matches")
+    .select("id, user_a_id, user_b_id, entry_a_id, entry_b_id, score")
+    .eq("id", options.matchId)
+    .maybeSingle<{
+      id: string;
+      user_a_id: string;
+      user_b_id: string;
+      entry_a_id: string | null;
+      entry_b_id: string | null;
+      score: number;
+    }>();
+
+  if (matchError) return { match: null, error: matchError.message };
+  if (!match) return { match: null, error: "Dream match was not found." };
+  if (match.user_a_id !== user.id && match.user_b_id !== user.id) {
+    return { match: null, error: "This dream match does not belong to the signed-in user." };
+  }
+  if (!match.entry_a_id || !match.entry_b_id) return { match: null, error: "Dream match is missing an entry." };
+
+  const { data: entries, error: entriesError } = await supabase
+    .from("journal_entries")
+    .select("id, user_id, content, summary, mood, themes, entry_date, entry_index, created_at")
+    .in("id", [match.entry_a_id, match.entry_b_id])
+    .returns<DbEntry[]>();
+
+  if (entriesError) return { match: null, error: entriesError.message };
+
+  const yourEntryId = match.user_a_id === user.id ? match.entry_a_id : match.entry_b_id;
+  const theirEntryId = match.user_a_id === user.id ? match.entry_b_id : match.entry_a_id;
+  const yourDream = (entries || []).find((entry) => entry.id === yourEntryId);
+  const theirDream = (entries || []).find((entry) => entry.id === theirEntryId);
+  if (!yourDream || !theirDream) return { match: null, error: "Dream match entries could not be loaded." };
+
+  const otherUserId = match.user_a_id === user.id ? match.user_b_id : match.user_a_id;
+  const { data: otherProfile } = await supabase
+    .from("profiles")
+    .select("id, username, display_name, avatar_url, matching_enabled")
+    .eq("id", otherUserId)
+    .maybeSingle<DbProfile>();
+
+  return {
+    match: {
+      id: match.id,
+      score: match.score,
+      otherProfile: {
+        id: otherUserId,
+        displayName: otherProfile?.display_name || otherProfile?.username || "Matched dreamer",
+        avatarUrl: otherProfile?.avatar_url || "",
+      },
+      yourDream: dreamPayload(yourDream, match.score),
+      theirDream: {
+        ...dreamPayload(theirDream, match.score),
+        content: theirDream.summary || entryExcerpt(theirDream.content),
+      },
+    },
+  };
+}
+
+export async function runNightlyDreamMatching(options: NightlyDreamMatchOptions): Promise<NightlyDreamMatchResult> {
+  const result: NightlyDreamMatchResult = {
+    scannedEntries: 0,
+    scoredPairs: 0,
+    matchesCreated: 0,
+    existingMatchesSkipped: 0,
+    notificationsCreated: 0,
+    errors: [],
+  };
+
+  if (!options.supabaseUrl || !options.serviceRoleKey) {
+    return { ...result, errors: ["Dream matching needs SUPABASE_SERVICE_ROLE_KEY on the server."] };
+  }
+
+  const supabase = createClient(options.supabaseUrl, options.serviceRoleKey, { auth: { persistSession: false } });
+  const { data: profiles, error: profilesError } = await supabase
+    .from("profiles")
+    .select("id, username, display_name, avatar_url, matching_enabled")
+    .eq("matching_enabled", true)
+    .limit(2000)
+    .returns<DbProfile[]>();
+
+  if (profilesError) return { ...result, errors: [profilesError.message] };
+
+  const userIds = (profiles || []).map((profile) => profile.id);
+  if (userIds.length < 2) return result;
+
+  const poolLimit = options.maxPoolEntries || NIGHTLY_POOL_LIMIT;
+  const { data: entries, error: entriesError } = await supabase
+    .from("journal_entries")
+    .select("id, user_id, content, summary, mood, themes, entry_date, entry_index, created_at")
+    .in("user_id", userIds)
+    .order("created_at", { ascending: false })
+    .limit(poolLimit)
+    .returns<DbEntry[]>();
+
+  if (entriesError) return { ...result, errors: [entriesError.message] };
+
+  const viableEntries = (entries || []).filter((entry) => wordCount(entry.content) >= 8);
+  const since = Date.now() - (options.sourceWindowHours || NIGHTLY_SOURCE_WINDOW_HOURS) * 60 * 60 * 1000;
+  const sourceEntries = viableEntries
+    .filter((entry) => new Date(entry.created_at).getTime() >= since)
+    .slice(0, options.maxSourceEntries || NIGHTLY_SOURCE_LIMIT);
+
+  result.scannedEntries = sourceEntries.length;
+  if (!sourceEntries.length) return result;
+
+  const patternsByUser = buildUserPatterns(viableEntries);
+  const runtime: EmbeddingRuntime = {
+    cache: new Map(),
+    generatedCount: 0,
+    limit: options.maxEmbeddingGenerations || NIGHTLY_EMBEDDING_GENERATION_LIMIT,
+  };
+  const candidatesPerEntry = options.maxScoredCandidatesPerEntry || NIGHTLY_CANDIDATES_PER_ENTRY;
+  const matchesPerEntry = options.maxMatchesPerEntry || NIGHTLY_MATCHES_PER_ENTRY;
+
+  for (const source of sourceEntries) {
+    let createdForEntry = 0;
+    const candidatePool = viableEntries.filter((entry) => entry.id !== source.id && entry.user_id !== source.user_id);
+    const candidates = buildPreliminaryCandidates([source], candidatePool, patternsByUser).slice(0, candidatesPerEntry);
+
+    for (const candidate of candidates) {
+      if (createdForEntry >= matchesPerEntry) break;
+      result.scoredPairs += 1;
+
+      try {
+        const score = await scoreDreamPair(supabase, candidate.current, candidate.other, patternsByUser, options, runtime);
+        if (score < MATCH_THRESHOLD) continue;
+
+        const matchResult = await persistMatch(supabase, source.user_id, candidate.other.user_id, source, candidate.other, score);
+        if (!matchResult.created) {
+          result.existingMatchesSkipped += 1;
+          continue;
+        }
+
+        const [sourceNotification, otherNotification] = await Promise.all([
+          persistMatchNotification(supabase, source.user_id, matchResult.id, source.id, score),
+          persistMatchNotification(supabase, candidate.other.user_id, matchResult.id, candidate.other.id, score),
+        ]);
+
+        result.matchesCreated += 1;
+        result.notificationsCreated += Number(sourceNotification.created) + Number(otherNotification.created);
+        createdForEntry += 1;
+      } catch (error) {
+        result.errors.push(error instanceof Error ? error.message : "A dream match candidate failed.");
+      }
+    }
+  }
+
+  return result;
 }
 
 function buildPreliminaryCandidates(currentEntries: DbEntry[], otherEntries: DbEntry[], patternsByUser: Map<string, UserPatterns>) {
@@ -302,7 +495,7 @@ async function getEntryEmbedding(
     return existing;
   }
 
-  if (runtime.generatedCount >= EMBEDDING_GENERATION_LIMIT) {
+  if (runtime.generatedCount >= runtime.limit) {
     runtime.cache.set(entry.id, null);
     return null;
   }
@@ -608,7 +801,7 @@ async function persistMatch(
   current: DbEntry,
   other: DbEntry,
   score: number,
-) {
+): Promise<{ id: string; created: boolean }> {
   const { data, error } = (await supabase
     .from("dream_matches")
     .insert({
@@ -633,12 +826,12 @@ async function persistMatch(
       const entries = new Set([match.entry_a_id, match.entry_b_id]);
       return entries.has(current.id) && entries.has(other.id);
     });
-    if (existing?.id) return existing.id;
+    if (existing?.id) return { id: existing.id, created: false };
     throw error;
   }
 
   if (!data?.id) throw new Error("Dream match could not be saved.");
-  return data.id;
+  return { id: data.id, created: true };
 }
 
 async function persistMatchNotification(
@@ -656,9 +849,9 @@ async function persistMatchNotification(
     .eq("related_match_id", matchId)
     .maybeSingle<{ id: string }>();
 
-  if (existing?.id) return;
+  if (existing?.id) return { created: false };
 
-  await supabase.from("notifications").insert({
+  const { error } = await supabase.from("notifications").insert({
     user_id: userId,
     type: "dream_match",
     title: "Dream connection",
@@ -666,4 +859,6 @@ async function persistMatchNotification(
     related_match_id: matchId,
     related_entry_id: entryId,
   });
+  if (error) throw error;
+  return { created: true };
 }

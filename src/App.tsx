@@ -319,7 +319,7 @@ function LocalPreviewApp() {
 function AuthScreen({ onStartedSignIn }: { onStartedSignIn: () => void }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [email, setEmail] = useState("");
+  const [loginIdentifier, setLoginIdentifier] = useState("");
   const [password, setPassword] = useState("");
 
   async function signInWithGoogle() {
@@ -337,20 +337,35 @@ function AuthScreen({ onStartedSignIn }: { onStartedSignIn: () => void }) {
   }
 
   async function signInWithPassword() {
-    const nextEmail = email.trim();
-    if (!nextEmail || !password) {
-      setError("Enter your email and password.");
+    const identifier = loginIdentifier.trim();
+    if (!identifier || !password) {
+      setError("Enter your email or username and password.");
       return;
     }
 
     setLoading(true);
     setError("");
-    const { error: authError } = await supabase.auth.signInWithPassword({ email: nextEmail, password });
-    if (authError) {
-      setLoading(false);
-      setError(authError.message);
-    } else {
+
+    try {
+      const response = await fetch("/api/password-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier, password }),
+      });
+      const result = await readJsonResponse<{ session?: { access_token?: string; refresh_token?: string }; error?: string }>(response);
+      if (!response.ok || result.error || !result.session?.access_token || !result.session.refresh_token) {
+        throw new Error(result.error || "Invalid login credentials.");
+      }
+
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: result.session.access_token,
+        refresh_token: result.session.refresh_token,
+      });
+      if (sessionError) throw sessionError;
       onStartedSignIn();
+    } catch (authError) {
+      setLoading(false);
+      setError(authError instanceof Error ? authError.message : "Invalid login credentials.");
     }
   }
 
@@ -378,11 +393,11 @@ function AuthScreen({ onStartedSignIn }: { onStartedSignIn: () => void }) {
         <div className="welcome-actions">
           <div className="email-login">
             <input
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="Email"
-              type="email"
-              autoComplete="email"
+              value={loginIdentifier}
+              onChange={(event) => setLoginIdentifier(event.target.value)}
+              placeholder="Email or username"
+              type="text"
+              autoComplete="username"
             />
             <input
               value={password}
@@ -395,7 +410,7 @@ function AuthScreen({ onStartedSignIn }: { onStartedSignIn: () => void }) {
               }}
             />
             <button type="button" onClick={signInWithPassword} disabled={loading}>
-              {loading ? "Signing in..." : "Sign in with email"}
+              {loading ? "Signing in..." : "Sign in"}
             </button>
           </div>
           <button className="google-button" type="button" onClick={signInWithGoogle} disabled={loading}>
@@ -1020,15 +1035,19 @@ function JournalApp({ user }: { user: User }) {
     await loadNotifications();
   }
 
-  async function refreshDreamMatch(): Promise<ActiveDreamMatch | null> {
+  async function loadDreamMatch(matchId: string | null): Promise<ActiveDreamMatch | null> {
     if (dreamMatchState === "loading") return activeDreamMatch;
+    if (!matchId) {
+      setDreamMatchState("empty");
+      return null;
+    }
     setDreamMatchState("loading");
     setDreamMatchError("");
 
     try {
       const { data } = await supabase.auth.getSession();
       const accessToken = data.session?.access_token || accessTokenRef.current;
-      if (!accessToken) throw new Error("Sign in again to check dream matches.");
+      if (!accessToken) throw new Error("Sign in again to open this dream match.");
 
       const response = await fetch("/api/dream-match", {
         method: "POST",
@@ -1036,10 +1055,10 @@ function JournalApp({ user }: { user: User }) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ matchId }),
       });
       const result = await readJsonResponse<{ match?: ActiveDreamMatch | null; error?: string }>(response);
-      if (!response.ok || result.error) throw new Error(result.error || "Dream matching failed.");
+      if (!response.ok || result.error) throw new Error(result.error || "Dream match could not be opened.");
 
       if (!result.match) {
         setActiveDreamMatch(null);
@@ -1055,7 +1074,7 @@ function JournalApp({ user }: { user: User }) {
       return match;
     } catch (error) {
       setDreamMatchState("error");
-      setDreamMatchError(error instanceof Error ? error.message : "Dream matching failed.");
+      setDreamMatchError(error instanceof Error ? error.message : "Dream match could not be opened.");
       await loadNotifications();
       return null;
     }
@@ -1066,11 +1085,11 @@ function JournalApp({ user }: { user: User }) {
     setTimelineOpen(false);
     setProfileOpen(false);
     void loadNotifications();
-    void refreshDreamMatch();
   }
 
-  async function openDreamMatchFlow(notificationId = "real-dream-match") {
-    const match = activeDreamMatch || (await refreshDreamMatch());
+  async function openDreamMatchFlow(notificationId: string) {
+    const notification = notifications.find((item) => item.id === notificationId);
+    const match = notification?.relatedMatchId === activeDreamMatch?.id ? activeDreamMatch : await loadDreamMatch(notification?.relatedMatchId || null);
     if (!match) {
       setDreamMatchState("empty");
       return;
@@ -1893,9 +1912,9 @@ function DreamMatchesDrawer({
           <CloseIcon />
         </button>
       </div>
-      {matchState === "loading" ? <p className="notification-status">Checking dream matches...</p> : null}
+      {matchState === "loading" ? <p className="notification-status">Opening dream match...</p> : null}
       {items.length === 0 && matchState !== "loading" ? (
-        <p className="notification-status">Matches, likes, and conversations will show here.</p>
+        <p className="notification-status">If a dream matches overnight, it will show here.</p>
       ) : null}
       <div className="notification-list">
         {items.map((item) => (

@@ -2,7 +2,8 @@ import { createClient } from "@supabase/supabase-js";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import dreamCircleHandler from "./api/dream-circle.js";
-import { findDreamMatch } from "./api/_dream-match.js";
+import passwordLoginHandler from "./api/password-login.js";
+import { getDreamMatchById, runNightlyDreamMatching } from "./api/_dream-match.js";
 import { analyzeJournalContent, generateMemoryImageResult, normalizeKeyList } from "./api/_lumora.js";
 
 export default defineConfig(({ mode }) => {
@@ -25,12 +26,34 @@ function lumoraDevApi(env: Record<string, string>): Plugin {
         }
 
         try {
-          if (request.method !== "POST") {
+          const allowsGet = request.url.startsWith("/api/dream-match-cron");
+          if (request.method !== "POST" && !(allowsGet && request.method === "GET")) {
             sendJson(response, 405, { error: "Method not allowed" });
             return;
           }
 
-          const body = await readJsonBody(request);
+          const body = request.method === "POST" ? await readJsonBody(request) : {};
+
+          if (request.url.startsWith("/api/dream-match-cron")) {
+            const cronSecret = env.CRON_SECRET || "";
+            if (cronSecret && readBearerToken(request.headers.authorization) !== cronSecret) {
+              sendJson(response, 401, { error: "Unauthorized" });
+              return;
+            }
+            sendJson(
+              response,
+              200,
+              await runNightlyDreamMatching({
+                supabaseUrl: env.VITE_SUPABASE_URL || env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL,
+                serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+                geminiApiKeys: normalizeKeyList([env.GEMINI_API_KEY || "", env.GEMINI_API_KEYS || ""]),
+                geminiEmbeddingModel: env.GEMINI_EMBEDDING_MODEL,
+                openAiApiKey: env.OPENAI_API_KEY,
+                embeddingModel: env.OPENAI_EMBEDDING_MODEL,
+              }),
+            );
+            return;
+          }
 
           if (request.url.startsWith("/api/analyze")) {
             const content = typeof body.content === "string" ? body.content : "";
@@ -65,18 +88,21 @@ function lumoraDevApi(env: Record<string, string>): Plugin {
             return;
           }
 
+          if (request.url.startsWith("/api/password-login")) {
+            (request as typeof request & { body?: Record<string, unknown> }).body = body;
+            await passwordLoginHandler(request as never, vercelReply(response) as never);
+            return;
+          }
+
           if (request.url.startsWith("/api/dream-match")) {
             sendJson(
               response,
               200,
-              await findDreamMatch({
+              await getDreamMatchById({
                 supabaseUrl: env.VITE_SUPABASE_URL || env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL,
                 serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
                 accessToken: readBearerToken(request.headers.authorization),
-                geminiApiKeys: normalizeKeyList([env.GEMINI_API_KEY || "", env.GEMINI_API_KEYS || ""]),
-                geminiEmbeddingModel: env.GEMINI_EMBEDDING_MODEL,
-                openAiApiKey: env.OPENAI_API_KEY,
-                embeddingModel: env.OPENAI_EMBEDDING_MODEL,
+                matchId: typeof body.matchId === "string" ? body.matchId : "",
               }),
             );
             return;
