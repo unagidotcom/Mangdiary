@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { findDreamMatch } from "./_dream-match.js";
+import { normalizeKeyList } from "./_lumora.js";
 
 export default async function handler(request: VercelRequest, reply: VercelResponse) {
   try {
@@ -12,6 +13,10 @@ export default async function handler(request: VercelRequest, reply: VercelRespo
       supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
       serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
       accessToken,
+      geminiApiKeys: normalizeKeyList([process.env.GEMINI_API_KEY || "", process.env.GEMINI_API_KEYS || ""]),
+      geminiEmbeddingModel: process.env.GEMINI_EMBEDDING_MODEL,
+      openAiApiKey: process.env.OPENAI_API_KEY,
+      embeddingModel: process.env.OPENAI_EMBEDDING_MODEL,
     });
 
     return reply.status(result.error ? 503 : 200).json(result);

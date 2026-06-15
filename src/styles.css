@@ -552,34 +552,6 @@ body[data-theme="night"] h6 {
     color-mix(in srgb, var(--color-accent) 20%, var(--paper-soft));
 }
 
-.top-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.notification-button {
-  position: relative;
-}
-
-.notification-badge {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  display: grid;
-  place-items: center;
-  min-width: 20px;
-  height: 20px;
-  border: 2px solid var(--paper);
-  border-radius: 999px;
-  background: #7f77dd;
-  color: #ffffff;
-  padding: 0 5px;
-  font-size: 0.66rem;
-  font-weight: 800;
-  line-height: 1;
-}
-
 .overlay-layer {
   position: fixed;
   inset: 0;
@@ -635,20 +607,20 @@ body[data-theme="night"] h6 {
   align-items: start;
   justify-items: center;
   overflow: auto;
-  padding: 74px 14px 104px;
+  padding: 18px 14px 104px;
   box-sizing: border-box;
 }
 
 .notification-drawer {
   position: fixed;
   z-index: 14;
-  top: 70px;
+  top: 18px;
   right: 14px;
   display: grid;
   align-content: start;
   gap: 12px;
   width: min(336px, calc(100vw - 28px));
-  max-height: calc(100vh - 92px);
+  max-height: calc(100vh - 40px);
   overflow: auto;
   box-sizing: border-box;
   border: 1px solid var(--color-border);
@@ -1282,11 +1254,6 @@ body[data-theme="night"] h6 {
   text-transform: uppercase;
 }
 
-.search-trigger svg {
-  width: 17px;
-  height: 17px;
-}
-
 .icon-button svg,
 .voice-button svg,
 .period-card svg {
@@ -1301,18 +1268,18 @@ body[data-theme="night"] h6 {
   display: grid;
   grid-template-columns: 1fr;
   gap: 18px;
-  padding: 72px 14px 104px;
+  padding: 24px 14px 104px;
   box-sizing: border-box;
 }
 
 .timeline {
   position: fixed;
   z-index: 10;
-  top: 70px;
+  top: 18px;
   left: 14px;
   width: min(390px, calc(100vw - 28px));
   box-sizing: border-box;
-  max-height: calc(100vh - 92px);
+  max-height: calc(100vh - 40px);
   overflow: auto;
   border: 1px solid color-mix(in srgb, var(--color-border) 72%, rgba(255, 255, 255, 0.5));
   border-radius: 16px;
@@ -1322,151 +1289,6 @@ body[data-theme="night"] h6 {
   padding: 10px;
   box-shadow: 0 24px 80px rgba(45, 31, 90, 0.18);
   backdrop-filter: blur(26px);
-}
-
-.global-search-panel {
-  position: fixed;
-  z-index: 12;
-  top: 70px;
-  left: 14px;
-  width: min(520px, calc(100vw - 28px));
-  box-sizing: border-box;
-  max-height: calc(100vh - 96px);
-  overflow: auto;
-  border: 1px solid color-mix(in srgb, var(--color-border) 72%, rgba(255, 255, 255, 0.5));
-  border-radius: 16px;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.12)),
-    color-mix(in srgb, var(--paper) 84%, transparent);
-  padding: 10px;
-  box-shadow: 0 24px 80px rgba(45, 31, 90, 0.2);
-  backdrop-filter: blur(28px);
-}
-
-.global-search-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid color-mix(in srgb, var(--color-border) 68%, transparent);
-  border-radius: 999px;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.08)),
-    color-mix(in srgb, var(--paper-soft) 76%, transparent);
-  padding: 5px 5px 5px 12px;
-  box-shadow: 0 12px 30px rgba(45, 31, 90, 0.08);
-}
-
-.global-search-box > svg {
-  flex: 0 0 auto;
-  color: var(--color-accent);
-}
-
-.global-search-box input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 0.86rem;
-  font-weight: 560;
-  outline: none;
-  padding: 9px 2px;
-}
-
-.global-search-box input::placeholder {
-  color: color-mix(in srgb, var(--text-secondary) 76%, transparent);
-}
-
-.global-search-box button {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--paper-soft) 78%, transparent);
-  color: var(--text-secondary);
-  padding: 0;
-}
-
-.search-results-list {
-  display: grid;
-  gap: 4px;
-  margin-top: 8px;
-}
-
-.search-result-row {
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
-  gap: 3px 10px;
-  width: 100%;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--text-primary);
-  padding: 7px;
-  text-align: left;
-  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
-}
-
-.search-result-row:hover {
-  border-color: color-mix(in srgb, var(--color-accent) 30%, var(--color-border));
-  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
-  transform: translateY(-1px);
-}
-
-.search-result-row img,
-.search-result-row svg {
-  grid-row: span 2;
-  width: 40px;
-  height: 40px;
-  border-radius: 11px;
-  object-fit: cover;
-}
-
-.search-result-row .timeline-cloud {
-  color: #6ff7ff;
-  filter: drop-shadow(0 0 6px rgba(111, 247, 255, 0.68)) drop-shadow(0 0 12px rgba(196, 112, 255, 0.32));
-  stroke-width: 2.4;
-}
-
-.search-result-row span {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-heading);
-  font-size: 0.84rem;
-  font-weight: 760;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.search-result-row time {
-  align-self: start;
-  color: var(--text-secondary);
-  font-size: 0.64rem;
-  font-weight: 700;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.search-result-row small {
-  grid-column: 2 / 4;
-  overflow: hidden;
-  display: -webkit-box;
-  color: var(--text-secondary);
-  font-size: 0.72rem;
-  font-weight: 400;
-  line-height: 1.25;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-}
-
-.search-empty {
-  margin: 10px 4px 2px;
-  color: var(--text-secondary);
-  font-size: 0.76rem;
-  line-height: 1.45;
 }
 
 .timeline-head {
@@ -2557,9 +2379,9 @@ body[data-theme="night"] h6 {
   bottom: 12px;
   left: 14px;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 3px;
-  max-width: 620px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  max-width: 420px;
   margin: 0 auto;
   border: 1px solid color-mix(in srgb, var(--color-border) 72%, rgba(255, 255, 255, 0.5));
   border-radius: 16px;
@@ -2572,19 +2394,16 @@ body[data-theme="night"] h6 {
 }
 
 .bottom-nav button {
+  position: relative;
   display: grid;
   place-items: center;
-  gap: 3px;
   min-width: 0;
-  min-height: 48px;
+  min-height: 44px;
   border: 0;
   border-radius: 12px;
   background: transparent;
   color: var(--text-secondary);
-  padding: 6px 4px;
-  font-size: 0.64rem;
-  font-weight: 760;
-  letter-spacing: 0;
+  padding: 6px;
 }
 
 .bottom-nav button:hover {
@@ -2593,10 +2412,37 @@ body[data-theme="night"] h6 {
 }
 
 .bottom-nav svg {
-  width: 17px;
-  height: 17px;
+  width: 19px;
+  height: 19px;
   color: var(--color-accent);
   stroke-width: 2;
+}
+
+.bottom-nav-avatar {
+  width: 24px;
+  height: 24px;
+  display: block;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 32%, rgba(255, 255, 255, 0.72));
+  border-radius: 999px;
+  object-fit: cover;
+  box-shadow: 0 5px 14px rgba(45, 31, 90, 0.16);
+}
+
+.nav-badge {
+  position: absolute;
+  top: 5px;
+  right: calc(50% - 22px);
+  min-width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #7f77dd;
+  color: #ffffff;
+  padding: 0 4px;
+  font-size: 0.62rem;
+  font-weight: 850;
+  line-height: 1;
 }
 
 .new-entry-fab {
@@ -2697,15 +2543,9 @@ body[data-theme="night"] h6 {
   }
 
   .timeline {
-    top: 82px;
+    top: 24px;
     left: 28px;
-    max-height: calc(100vh - 122px);
-  }
-
-  .global-search-panel {
-    top: 82px;
-    left: 28px;
-    max-height: calc(100vh - 122px);
+    max-height: calc(100vh - 48px);
   }
 
   .periods {
@@ -2859,35 +2699,15 @@ body[data-theme="night"] h6 {
   }
 
   .journal-layout {
-    padding: 70px 10px 104px;
+    padding: 18px 10px 104px;
   }
 
   .timeline {
-    top: 64px;
+    top: 12px;
     left: 10px;
     width: calc(100vw - 20px);
-    max-height: calc(100vh - 152px);
+    max-height: calc(100vh - 116px);
     padding: 9px;
-  }
-
-  .global-search-panel {
-    top: 64px;
-    left: 10px;
-    width: calc(100vw - 20px);
-    max-height: calc(100vh - 152px);
-    padding: 9px;
-  }
-
-  .search-result-row {
-    grid-template-columns: 40px minmax(0, 1fr);
-  }
-
-  .search-result-row time {
-    display: none;
-  }
-
-  .search-result-row small {
-    grid-column: 2;
   }
 
   .timeline-item {

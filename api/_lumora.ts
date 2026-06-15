@@ -45,22 +45,28 @@ const GEMINI_IMAGE_MODELS = ["gemini-3.1-flash-image", "gemini-2.5-flash-image"]
 export async function analyzeJournalContent(content: string, apiKeys?: string | string[]): Promise<EntryInsight> {
   const keys = normalizeKeyList(apiKeys);
   const isDreamEntry = looksLikeDream(content);
+  const theoryFrame = [
+    "Sigmund Freud: dreams may hide repressed childhood desires or unresolved wishes.",
+    "Carl Jung: dreams may carry symbolic messages from the shared human unconscious.",
+    "Alfred Adler: dreams may rehearse ways to solve tomorrow's problems.",
+    "Calvin S. Hall: dreams may map everyday thoughts, beliefs, and self-concepts.",
+    "Fritz Perls: dreams may show split-off parts of the dreamer's own personality.",
+    "Deirdre Barrett: dreams may solve problems creatively without normal logical limits.",
+  ].join("\n");
   const prompt = [
     "You are DreamLens inside MangDiary, a gentle journaling and dream analysis assistant. Return strict JSON only.",
     "Fields: summary, reflection, mood, themes, isDreamLike, imagePrompt, cards.",
     "cards must be an array of 1-6 clean insight cards. Each card has title, body, and optional items array.",
-    "Use warm natural language. Never diagnose. Keep reflection to one sentence.",
+    "Use warm natural language. Never diagnose. Reflection must be the best short interpretation in 2-4 concise sentences.",
     "Themes must be 2-5 title-case strings. Mood is one short word.",
     "Set isDreamLike true when the entry contains dreams, surreal imagery, imagination, or vivid visual storytelling.",
     isDreamEntry
       ? [
-          "This entry appears dream-like. Analyze it through four clearly labeled lenses:",
-          "Freudian Lens: manifest/latent content, possible wish, fear, displacement, condensation, or symbolization.",
-          "Jungian Lens: archetypes, shadow/self balance, and symbolic personality material.",
-          "Cognitive Lens: memory, emotion processing, threat rehearsal, or waking-life continuity.",
-          "Activation-Synthesis Lens: what may simply be the brain stitching random signals into story.",
-          "Also include Symbol Breakdown, Reflection Questions, and Closing Insight cards when useful.",
-          "Use uncertainty language such as 'may suggest' or 'one reading could be'.",
+          "This entry appears dream-like. Interpret it through these dream theory lenses, then synthesize the best reading rather than forcing every theory equally:",
+          theoryFrame,
+          "The reflection field should read like one polished interpretation for the dreamer, in a few sentences.",
+          "Use cards only when useful: Dream Summary, Key Symbols, Theory Lenses, Personal Reading, or Gentle Question.",
+          "Use uncertainty language such as 'may suggest', 'could reflect', or 'one reading is'.",
         ].join("\n")
       : "For a non-dream journal entry, create cards for Summary, Emotional Tone, Patterns, and Gentle Next Step when useful.",
     `Journal entry:\n${content}`,
@@ -493,7 +499,7 @@ export function localInsight(content: string): EntryInsight {
 
   const isDreamLike = looksLikeDream(content);
   const summary = content.trim().split(/[.!?]/)[0].slice(0, 160);
-  const reflection = `You seem to be moving through the day with a ${mood.toLowerCase()} tone.`;
+  const reflection = isDreamLike ? localDreamReflection(content, mood, themes) : `You seem to be moving through the day with a ${mood.toLowerCase()} tone.`;
   const cards = isDreamLike ? localDreamCards(content, mood, themes) : localJournalCards(summary, mood, themes);
 
   return {
@@ -523,7 +529,7 @@ function normalizeInsight(value: unknown, content: string): EntryInsight {
 
   return {
     summary: trimText(candidate.summary || fallback.summary, 220),
-    reflection: trimText(candidate.reflection || fallback.reflection, 320),
+    reflection: trimText(candidate.reflection || fallback.reflection, 520),
     mood: trimText(candidate.mood || fallback.mood, 40),
     themes: Array.isArray(candidate.themes) ? candidate.themes.map(String).slice(0, 5) : fallback.themes,
     isDreamLike: Boolean(candidate.isDreamLike ?? fallback.isDreamLike),
@@ -588,20 +594,27 @@ function localDreamCards(content: string, mood: string, themes: string[]): Insig
       items: symbols,
     },
     {
-      title: "Freudian Lens",
-      body: "One reading could be that the dream is disguising a desire, fear, or unresolved tension behind symbolic images rather than stating it directly.",
+      title: "Theory Lenses",
+      body: "The dream can be read through several classic lenses without treating any one as certain.",
+      items: [
+        "Freud: hidden wishes or old emotional material.",
+        "Jung: shared symbols and inner archetypes.",
+        "Adler: rehearsal for tomorrow's problems.",
+        "Hall: everyday thoughts and beliefs.",
+        "Perls: split-off parts of the self.",
+        "Barrett: creative problem solving.",
+      ],
     },
     {
-      title: "Jungian Lens",
-      body: `From a Jungian angle, the dream may be asking for balance around ${themes.length ? themes[0].toLowerCase() : "a hidden part of the self"}.`,
-    },
-    {
-      title: "Cognitive Lens",
-      body: `The ${mood.toLowerCase()} tone may reflect your mind processing recent emotion, memory, or unfinished concerns during sleep.`,
-    },
-    {
-      title: "Activation-Synthesis Lens",
-      body: "Some strange details may be random neural material, but the story your mind built from them can still reveal what feels emotionally important.",
+      title: "Personal Reading",
+      body: localDreamReflection(content, mood, themes),
     },
   ];
+}
+
+function localDreamReflection(content: string, mood: string, themes: string[]) {
+  const symbols = deriveKeywords(content).slice(0, 3);
+  const theme = themes[0]?.toLowerCase() || symbols[0] || "an unresolved inner question";
+  const symbolPhrase = symbols.length ? ` through ${symbols.join(", ")}` : "";
+  return `One reading is that the dream is staging ${theme}${symbolPhrase} so you can feel it from several angles. Freud might see hidden desire or old emotion, Jung and Perls would treat the figures as symbolic parts of the self, while Adler, Hall, and Barrett point toward practical problem solving and everyday beliefs. The ${mood.toLowerCase()} tone suggests the dream is less a fixed answer than a creative rehearsal for what needs attention next.`;
 }

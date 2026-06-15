@@ -3,12 +3,10 @@ import {
   ArrowLeft,
   AtSign,
   BarChart3,
-  Bell,
   BookOpen,
   Camera,
   Check,
   Cloud,
-  Compass,
   Download,
   Heart,
   Home,
@@ -471,10 +469,11 @@ function JournalApp({ user }: { user: User }) {
   const today = isoToday();
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const saveTimerRef = useRef<number | null>(null);
-  const analysisTimerRef = useRef<number | null>(null);
+  const dailyReflectionRef = useRef("");
   const timelineGestureRef = useRef<{ id: string; x: number; y: number; longPressTimer: number | null } | null>(null);
   const suppressTimelineOpenRef = useRef("");
   const handledDateSelectionRef = useRef("");
+  const openedInitialBlankRef = useRef(false);
   const lastAnalyzedRef = useRef("");
   const accessTokenRef = useRef("");
   const [autoTheme, setAutoTheme] = useState(themeForTime());
@@ -487,7 +486,6 @@ function JournalApp({ user }: { user: User }) {
   const [entryFilter, setEntryFilter] = useState<EntryFilter>("daily");
   const [commandView, setCommandView] = useState<CommandView>("archive");
   const [timelineOpen, setTimelineOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [deleteActionId, setDeleteActionId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(today);
@@ -515,7 +513,7 @@ function JournalApp({ user }: { user: User }) {
   const [passwordForm, setPasswordForm] = useState<PasswordForm>({ password: "", confirmPassword: "" });
   const [passwordState, setPasswordState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [passwordError, setPasswordError] = useState("");
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [matchesOpen, setMatchesOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [socialStage, setSocialStage] = useState<SocialStage>("none");
   const [shareAnonymously, setShareAnonymously] = useState(true);
@@ -536,12 +534,6 @@ function JournalApp({ user }: { user: User }) {
   useEffect(() => {
     document.body.dataset.theme = theme;
   }, [theme]);
-
-  useEffect(() => {
-    if (!searchOpen) return;
-    setTimelineOpen(false);
-    setNotificationsOpen(false);
-  }, [searchOpen]);
 
   const loadProfile = useCallback(async () => {
     setProfileState("loading");
@@ -680,6 +672,11 @@ function JournalApp({ user }: { user: User }) {
   );
 
   useEffect(() => {
+    if (!openedInitialBlankRef.current && selectedDate === today) {
+      openedInitialBlankRef.current = true;
+      window.setTimeout(() => editorRef.current?.focus(), 150);
+      return;
+    }
     if (handledDateSelectionRef.current === selectedDate) {
       handledDateSelectionRef.current = "";
       return;
@@ -707,11 +704,29 @@ function JournalApp({ user }: { user: User }) {
   const persist = useCallback(
     async (nextContent = content, quiet = false) => {
       if (!entry) {
-        setSaveState("error");
-        setIssue({
-          title: "Entry is not ready",
-          detail: "MangDiary could not open today's database entry yet, so there is nothing to save. Run the Supabase schema if this keeps happening.",
-        });
+        if (!nextContent.trim()) {
+          setSaveState("idle");
+          return;
+        }
+
+        if (!quiet) setSaveState("saving");
+        const { data, error } = await supabase
+          .from("journal_entries")
+          .insert({ user_id: user.id, entry_date: today, entry_index: await nextEntryIndex(today), content: nextContent })
+          .select("*")
+          .single();
+
+        if (error) {
+          setSaveState("error");
+          setIssue(databaseIssue(error.message));
+          return;
+        }
+
+        const createdEntry = data as JournalEntry;
+        applyEntry(createdEntry);
+        setSaveState("saved");
+        setIssue(null);
+        await loadEntries();
         return;
       }
       if (!quiet) setSaveState("saving");
@@ -736,11 +751,22 @@ function JournalApp({ user }: { user: User }) {
       localStorage.removeItem(draftKeyFor(entry.id));
       await loadEntries();
     },
-    [content, entry, loadEntries, user.id],
+    [applyEntry, content, entry, loadEntries, today, user.id],
   );
 
   useEffect(() => {
-    if (!entry) return;
+    if (!entry) {
+      if (!content.trim()) {
+        setSaveState("idle");
+        return;
+      }
+      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+      setSaveState("saving");
+      saveTimerRef.current = window.setTimeout(() => persist(content), 1200);
+      return () => {
+        if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+      };
+    }
     if (content === entry.content) {
       localStorage.removeItem(draftKeyFor(entry.id));
       setSaveState("saved");
@@ -770,12 +796,61 @@ function JournalApp({ user }: { user: User }) {
   }, [content, entry, user.id]);
 
   useEffect(() => {
-    if (!entry || content.trim().length < 160 || content === lastAnalyzedRef.current) return;
-    if (analysisTimerRef.current) window.clearTimeout(analysisTimerRef.current);
-    analysisTimerRef.current = window.setTimeout(async () => {
-      await refreshInsight(false);
-    }, 2800);
-  }, [content, entry]);
+    const runKey = `mangdiary-daily-reflection-${user.id}-${today}`;
+    if (dailyReflectionRef.current === runKey || localStorage.getItem(runKey) === "done") return;
+
+    const previousEntry = entries.find(
+      (item) => item.entry_date < today && item.content.trim().split(/\s+/).filter(Boolean).length >= 8 && !item.reflection,
+    );
+
+    if (!previousEntry) {
+      dailyReflectionRef.current = runKey;
+      localStorage.setItem(runKey, "done");
+      return;
+    }
+
+    dailyReflectionRef.current = runKey;
+    localStorage.setItem(runKey, "done");
+
+    void (async () => {
+      const selected = previousEntry.id === selectedEntryId;
+      if (selected) {
+        setInsightState("reflecting");
+        setInsightError("");
+      }
+
+      try {
+        const nextInsight = await analyzeEntry(previousEntry.content);
+        if (!nextInsight) throw new Error("Reflection could not be generated.");
+        const { data, error } = await supabase
+          .from("journal_entries")
+          .update({
+            summary: nextInsight.summary,
+            reflection: nextInsight.reflection,
+            mood: nextInsight.mood,
+            themes: nextInsight.themes,
+            image_prompt: nextInsight.imagePrompt,
+          })
+          .eq("id", previousEntry.id)
+          .eq("user_id", user.id)
+          .select("*")
+          .single();
+        if (error) throw error;
+        if (selected && data) {
+          setEntry(data as JournalEntry);
+          setInsight(nextInsight);
+          setInsightState("idle");
+          setIssue(null);
+        }
+        await loadEntries();
+      } catch (error) {
+        if (selected) {
+          setInsightState("error");
+          setInsightError(error instanceof Error ? error.message : "Reflection could not be generated.");
+        }
+      }
+    })();
+  }, [entries, loadEntries, selectedEntryId, today, user.id]);
 
   useEffect(() => {
     if (entries.length === 0) return;
@@ -827,15 +902,10 @@ function JournalApp({ user }: { user: User }) {
 
   const rangeAnalytics = useMemo(() => buildRangeAnalytics(rangeEntries, entryFilter), [entryFilter, rangeEntries]);
 
-  const searchResults = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    const matches = needle ? entries.filter((item) => entryMatchesQuery(item, needle, entries)) : entries;
-    return matches.slice(0, 12);
-  }, [entries, query]);
-
   const selectedShareDream = activeDreamMatch?.yourDream;
   const matchedOtherDream = activeDreamMatch?.theirDream;
-  const unreadCount = notifications.filter((item) => !item.isRead).length;
+  const inboxItems = notifications;
+  const unreadMatchCount = inboxItems.filter((item) => !item.isRead).length;
   const canGenerateMemoryImage = content.trim().length >= 40;
 
   async function nextEntryIndex(entryDate: string) {
@@ -934,12 +1004,6 @@ function JournalApp({ user }: { user: User }) {
     }
   }
 
-  async function markAllNotificationsRead() {
-    setNotifications((current) => current.map((item) => ({ ...item, isRead: true })));
-    await supabase.from("notifications").update({ is_read: true }).eq("user_id", user.id).eq("is_read", false);
-    await loadNotifications();
-  }
-
   async function markNotificationRead(id: string) {
     setNotifications((current) => current.map((item) => (item.id === id ? { ...item, isRead: true } : item)));
     await supabase.from("notifications").update({ is_read: true }).eq("id", id).eq("user_id", user.id);
@@ -956,8 +1020,8 @@ function JournalApp({ user }: { user: User }) {
     await loadNotifications();
   }
 
-  async function refreshDreamMatch() {
-    if (dreamMatchState === "loading") return;
+  async function refreshDreamMatch(): Promise<ActiveDreamMatch | null> {
+    if (dreamMatchState === "loading") return activeDreamMatch;
     setDreamMatchState("loading");
     setDreamMatchError("");
 
@@ -981,27 +1045,38 @@ function JournalApp({ user }: { user: User }) {
         setActiveDreamMatch(null);
         setDreamMatchState("empty");
         await loadNotifications();
-        return;
+        return null;
       }
 
       const match = result.match;
       setActiveDreamMatch(match);
       setDreamMatchState("ready");
       await loadNotifications();
+      return match;
     } catch (error) {
       setDreamMatchState("error");
       setDreamMatchError(error instanceof Error ? error.message : "Dream matching failed.");
       await loadNotifications();
+      return null;
     }
   }
 
-  function openDreamMatchFlow(notificationId = "real-dream-match") {
-    if (!activeDreamMatch) {
+  function openMatchesDrawer() {
+    setMatchesOpen(true);
+    setTimelineOpen(false);
+    setProfileOpen(false);
+    void loadNotifications();
+    void refreshDreamMatch();
+  }
+
+  async function openDreamMatchFlow(notificationId = "real-dream-match") {
+    const match = activeDreamMatch || (await refreshDreamMatch());
+    if (!match) {
       setDreamMatchState("empty");
       return;
     }
     void markNotificationRead(notificationId);
-    setNotificationsOpen(false);
+    setMatchesOpen(false);
     setSocialStage("consent");
   }
 
@@ -1168,8 +1243,22 @@ function JournalApp({ user }: { user: User }) {
     await loadEntries();
   }
 
+  async function openFreshTodayEntry() {
+    if (content.trim() && (!entry || content !== entry.content)) await persist(content, true);
+    handledDateSelectionRef.current = today;
+    setEntry(null);
+    setSelectedEntryId(null);
+    setSelectedDate(today);
+    setContent("");
+    setInsight(emptyInsight);
+    setSaveState("idle");
+    setTimelineOpen(false);
+    setIssue(null);
+    window.setTimeout(() => editorRef.current?.focus(), 100);
+  }
+
   async function createNewEntry() {
-    if (entry && content !== entry.content) await persist(content, true);
+    if (content.trim() && (!entry || content !== entry.content)) await persist(content, true);
     setSaveState("saving");
     const { data, error } = await supabase
       .from("journal_entries")
@@ -1379,77 +1468,22 @@ function JournalApp({ user }: { user: User }) {
   }
 
   function closeFloatingPanels() {
-    setSearchOpen(false);
     setTimelineOpen(false);
-    setNotificationsOpen(false);
+    setMatchesOpen(false);
     setProfileOpen(false);
-  }
-
-  function openSearchResult(item: JournalEntry) {
-    applyEntry(item);
-    setSearchOpen(false);
-    setTimelineOpen(false);
-    setProfileOpen(false);
-    setNotificationsOpen(false);
   }
 
   return (
     <main className={`app-shell theme-${theme}`}>
       <div className="paper-grain" />
-      <header className="top-bar">
-        <button
-          className={searchOpen ? "icon-button search-trigger active" : "icon-button search-trigger"}
-          type="button"
-          onClick={() => {
-            setSearchOpen((open) => !open);
-            setTimelineOpen(false);
-            setNotificationsOpen(false);
-            setProfileOpen(false);
-          }}
-          aria-label="Search entries"
-          title="Search entries"
-        >
-          <Search />
-        </button>
-        <div className="top-actions">
-          <button
-            className={notificationsOpen ? "icon-button notification-button active" : "icon-button notification-button"}
-            type="button"
-            onClick={() => {
-              setNotificationsOpen((open) => !open);
-              setSearchOpen(false);
-              setTimelineOpen(false);
-              setProfileOpen(false);
-              if (!notificationsOpen) void refreshDreamMatch();
-            }}
-            aria-label="Notifications"
-            title="Notifications"
-          >
-            <Bell />
-            {unreadCount > 0 ? <span className="notification-badge">{unreadCount > 9 ? "9+" : unreadCount}</span> : null}
-          </button>
-        </div>
-      </header>
 
       <AnimatePresence>
-        {searchOpen ? (
-          <OverlayLayer className="search-overlay" onClose={() => setSearchOpen(false)}>
-            <SearchPanel
-              query={query}
-              results={searchResults}
-              onQueryChange={setQuery}
-              onClose={() => setSearchOpen(false)}
-              onOpenEntry={openSearchResult}
-            />
-          </OverlayLayer>
-        ) : null}
-        {notificationsOpen ? (
-          <OverlayLayer className="notification-overlay" onClose={() => setNotificationsOpen(false)}>
-            <NotificationDrawer
-              notifications={notifications}
+        {matchesOpen ? (
+          <OverlayLayer className="notification-overlay" onClose={() => setMatchesOpen(false)}>
+            <DreamMatchesDrawer
+              items={inboxItems}
               matchState={dreamMatchState}
-              onClose={() => setNotificationsOpen(false)}
-              onMarkAllRead={markAllNotificationsRead}
+              onClose={() => setMatchesOpen(false)}
               onOpenDreamMatch={openDreamMatchFlow}
               onSkipDreamMatch={skipDreamMatch}
               onReadNotification={markNotificationRead}
@@ -1518,6 +1552,7 @@ function JournalApp({ user }: { user: User }) {
                   onClick={() => {
                     setCommandView("archive");
                     setTimelineOpen(false);
+                    setMatchesOpen(false);
                     void loadEntryForDate(today);
                   }}
                 >
@@ -1728,28 +1763,23 @@ function JournalApp({ user }: { user: User }) {
       <BottomNav
         onHome={() => {
           closeFloatingPanels();
-          void loadEntryForDate(today);
+          void openFreshTodayEntry();
         }}
         onJournal={() => {
           setTimelineOpen(true);
-          setSearchOpen(false);
           setProfileOpen(false);
-          setNotificationsOpen(false);
+          setMatchesOpen(false);
         }}
-        onInsights={() => {
-          closeFloatingPanels();
-          runAiInsights();
-        }}
-        onDiscover={() => {
-          setNotificationsOpen(false);
-          setSocialStage("consent");
+        onMatches={() => {
+          openMatchesDrawer();
         }}
         onProfile={() => {
           setProfileOpen(true);
           setTimelineOpen(false);
-          setSearchOpen(false);
-          setNotificationsOpen(false);
+          setMatchesOpen(false);
         }}
+        profileAvatarUrl={profileAvatar(user, profile)}
+        unreadMatchCount={unreadMatchCount}
       />
       <button className="new-entry-fab" type="button" onClick={createNewEntry} aria-label="New entry" title="New entry">
         <Plus />
@@ -1802,107 +1832,48 @@ function OverlayLayer({
 function BottomNav({
   onHome,
   onJournal,
-  onInsights,
-  onDiscover,
+  onMatches,
   onProfile,
+  profileAvatarUrl,
+  unreadMatchCount,
 }: {
   onHome: () => void;
   onJournal: () => void;
-  onInsights: () => void;
-  onDiscover: () => void;
+  onMatches: () => void;
   onProfile: () => void;
+  profileAvatarUrl: string;
+  unreadMatchCount: number;
 }) {
   return (
     <nav className="bottom-nav" aria-label="Primary navigation">
-      <button type="button" onClick={onHome}>
+      <button type="button" onClick={onHome} aria-label="Home" title="Home">
         <Home />
-        <span>Home</span>
       </button>
-      <button type="button" onClick={onJournal}>
+      <button type="button" onClick={onJournal} aria-label="Journal" title="Journal">
         <PenLine />
-        <span>Journal</span>
       </button>
-      <button type="button" onClick={onInsights}>
-        <Sparkles />
-        <span>AI</span>
+      <button type="button" onClick={onMatches} aria-label="Matches" title="Matches">
+        <Heart />
+        {unreadMatchCount > 0 ? <span className="nav-badge">{unreadMatchCount > 9 ? "9+" : unreadMatchCount}</span> : null}
       </button>
-      <button type="button" onClick={onDiscover}>
-        <Compass />
-        <span>Discover</span>
-      </button>
-      <button type="button" onClick={onProfile}>
-        <UserRound />
-        <span>Profile</span>
+      <button type="button" onClick={onProfile} aria-label="Profile" title="Profile">
+        {profileAvatarUrl ? <img className="bottom-nav-avatar" src={profileAvatarUrl} alt="" /> : <UserRound />}
       </button>
     </nav>
   );
 }
 
-function SearchPanel({
-  query,
-  results,
-  onQueryChange,
-  onClose,
-  onOpenEntry,
-}: {
-  query: string;
-  results: JournalEntry[];
-  onQueryChange: (value: string) => void;
-  onClose: () => void;
-  onOpenEntry: (entry: JournalEntry) => void;
-}) {
-  return (
-    <motion.aside
-      className="global-search-panel"
-      initial={{ opacity: 0, y: -8, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -8, scale: 0.98 }}
-      transition={{ duration: 0.18 }}
-      aria-label="Search entries"
-    >
-      <div className="global-search-box">
-        <Search size={16} />
-        <input
-          autoFocus
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Search words or dates"
-          aria-label="Search older entries by words or date"
-        />
-        <button type="button" onClick={onClose} aria-label="Close search">
-          <CloseIcon size={16} />
-        </button>
-      </div>
-      <div className="search-results-list">
-        {results.map((item) => (
-          <button className="search-result-row" key={item.id} type="button" onClick={() => onOpenEntry(item)}>
-            {item.image_url ? <img src={item.image_url} alt="" /> : <Cloud className="timeline-cloud" size={18} />}
-            <span>{entryTitle(item)}</span>
-            <time>{longDate(item.entry_date)}</time>
-            <small>{item.summary || item.content || "A quiet page"}</small>
-          </button>
-        ))}
-      </div>
-      {results.length === 0 ? (
-        <p className="search-empty">No entries match that search. Try a word, month, or exact date.</p>
-      ) : null}
-    </motion.aside>
-  );
-}
-
-function NotificationDrawer({
-  notifications,
+function DreamMatchesDrawer({
+  items,
   matchState,
   onClose,
-  onMarkAllRead,
   onOpenDreamMatch,
   onSkipDreamMatch,
   onReadNotification,
 }: {
-  notifications: AppNotification[];
+  items: AppNotification[];
   matchState: "idle" | "loading" | "ready" | "empty" | "error";
   onClose: () => void;
-  onMarkAllRead: () => void;
   onOpenDreamMatch: (id: string) => void;
   onSkipDreamMatch: (id: string) => void;
   onReadNotification: (id: string) => void;
@@ -1914,23 +1885,20 @@ function NotificationDrawer({
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 28 }}
       transition={{ duration: 0.22 }}
-      aria-label="Notifications"
+      aria-label="Dream matches"
     >
       <div className="notification-head">
-        <h2>Notifications</h2>
-        <button className="icon-button" type="button" onClick={onClose} aria-label="Close notifications">
+        <h2>Matches</h2>
+        <button className="icon-button" type="button" onClick={onClose} aria-label="Close matches">
           <CloseIcon />
         </button>
       </div>
-      <button className="text-button notification-read-all" type="button" onClick={onMarkAllRead}>
-        Mark all read
-      </button>
-      {matchState === "loading" ? <p className="notification-status">Checking real dream matches...</p> : null}
-      {notifications.length === 0 && matchState !== "loading" ? (
-        <p className="notification-status">If something matches, it will show here.</p>
+      {matchState === "loading" ? <p className="notification-status">Checking dream matches...</p> : null}
+      {items.length === 0 && matchState !== "loading" ? (
+        <p className="notification-status">Matches, likes, and conversations will show here.</p>
       ) : null}
       <div className="notification-list">
-        {notifications.map((item) => (
+        {items.map((item) => (
           <article className={item.isRead ? "notification-item" : "notification-item unread"} key={item.id}>
             <div className="notification-icon">{notificationIcon(item.type)}</div>
             <button

@@ -73,6 +73,10 @@ function lumoraDevApi(env: Record<string, string>): Plugin {
                 supabaseUrl: env.VITE_SUPABASE_URL || env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL,
                 serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
                 accessToken: readBearerToken(request.headers.authorization),
+                geminiApiKeys: normalizeKeyList([env.GEMINI_API_KEY || "", env.GEMINI_API_KEYS || ""]),
+                geminiEmbeddingModel: env.GEMINI_EMBEDDING_MODEL,
+                openAiApiKey: env.OPENAI_API_KEY,
+                embeddingModel: env.OPENAI_EMBEDDING_MODEL,
               }),
             );
             return;
