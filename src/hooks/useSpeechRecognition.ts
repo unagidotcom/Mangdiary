@@ -37,6 +37,9 @@ type TranscribeResponse = {
   error?: string;
 };
 
+const GROQ_CHUNK_INTERVAL_MS = 5000;
+const MIN_AUDIO_CHUNK_BYTES = 2000;
+
 declare global {
   interface Window {
     SpeechRecognition?: SpeechRecognitionConstructor;
@@ -228,7 +231,7 @@ export function useSpeechRecognition(onText: (text: string) => void) {
           mediaStreamRef.current = stream;
           recorderRef.current = recorder;
           recorder.ondataavailable = (event) => {
-            if (!event.data || event.data.size === 0) return;
+            if (!event.data || event.data.size < MIN_AUDIO_CHUNK_BYTES) return;
             chunkQueueRef.current.push(event.data);
             void processChunkQueue();
           };
@@ -240,7 +243,7 @@ export function useSpeechRecognition(onText: (text: string) => void) {
             mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
             mediaStreamRef.current = null;
           };
-          recorder.start(1800);
+          recorder.start(GROQ_CHUNK_INTERVAL_MS);
           engineRef.current = "groq";
           setIsListening(true);
           setTranscript("");

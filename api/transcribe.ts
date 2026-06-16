@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 const DEFAULT_MODEL = "whisper-large-v3-turbo";
+const MIN_AUDIO_BYTES = 2_000;
 
 export default async function handler(request: VercelRequest, reply: VercelResponse) {
   try {
@@ -24,6 +25,9 @@ export default async function handler(request: VercelRequest, reply: VercelRespo
     if (!audioBuffer.length) {
       return reply.status(400).json({ error: "Missing audio payload." });
     }
+    if (audioBuffer.length < MIN_AUDIO_BYTES) {
+      return reply.status(200).json({ text: "" });
+    }
 
     const mimeType = headerValue(request.headers["x-audio-mime-type"]) || "audio/webm";
     const language = normalizeLanguage(headerValue(request.headers["x-language"]));
@@ -44,7 +48,11 @@ export default async function handler(request: VercelRequest, reply: VercelRespo
 
     const payloadText = await response.text();
     if (!response.ok) {
-      return reply.status(response.status).json({ error: readableGroqError(payloadText) });
+      const error = readableGroqError(payloadText);
+      if (isIgnorableAudioError(response.status, error)) {
+        return reply.status(200).json({ text: "" });
+      }
+      return reply.status(response.status).json({ error });
     }
 
     const payload = parseJsonObject(payloadText);
@@ -100,4 +108,22 @@ function readableGroqError(value: string) {
     return String((error as { message: string }).message);
   }
   return value || "Groq transcription failed.";
+}
+
+function isIgnorableAudioError(status: number, message: string) {
+  if (status !== 400) return false;
+
+  const normalized = message.toLowerCase();
+  return [
+    "audio",
+    "bad request",
+    "could not",
+    "decode",
+    "duration",
+    "empty",
+    "file",
+    "format",
+    "invalid",
+    "too short",
+  ].some((fragment) => normalized.includes(fragment));
 }
