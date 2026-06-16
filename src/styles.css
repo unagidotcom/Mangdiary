@@ -2495,12 +2495,20 @@ body[data-theme="night"] h6 {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
+  min-height: 48px;
 }
 
 .voice-control {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 12px;
+}
+
+.voice-button {
+  flex: 0 0 40px;
+  overflow: visible;
 }
 
 .voice-button.listening {
@@ -2538,8 +2546,8 @@ body[data-theme="night"] h6 {
 .voice-button.listening svg {
   position: relative;
   z-index: 1;
-  width: 25px;
-  height: 25px;
+  width: 24px;
+  height: 24px;
   stroke-width: 2.7;
   filter:
     drop-shadow(0 0 5px rgba(255, 255, 255, 0.7))
@@ -2588,7 +2596,6 @@ body[data-theme="night"] h6 {
   opacity: 0.7;
 }
 
-.live-transcript,
 .reflection,
 .memory-revisit,
 .period-card {
@@ -2596,6 +2603,23 @@ body[data-theme="night"] h6 {
   border-radius: 8px;
   background: var(--paper-soft);
   padding: 16px;
+}
+
+.live-transcript {
+  width: min(42vw, 320px);
+  min-height: 32px;
+  box-sizing: border-box;
+  overflow: hidden;
+  color: transparent;
+  font-size: var(--type-small);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.live-transcript.active {
+  color: var(--text-secondary);
 }
 
 .reflection h2,
@@ -3038,6 +3062,18 @@ body[data-theme="night"] h6 {
   .notification-icon {
     width: 30px;
     height: 30px;
+  }
+
+  .entry-actions {
+    gap: 10px;
+  }
+
+  .voice-control {
+    gap: 9px;
+  }
+
+  .live-transcript {
+    width: min(34vw, 150px);
   }
 
   .notification-copy strong {

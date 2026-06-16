@@ -495,17 +495,21 @@ function LocalPreviewApp() {
             className="journal-editor"
             aria-label="Journal entry"
           />
-          {speech.transcript ? <div className="live-transcript">{speech.transcript}</div> : null}
           <footer className="entry-actions">
-            <button
-              className={speech.isListening ? "voice-button listening" : "voice-button"}
-              type="button"
-              onClick={speech.isListening ? speech.stop : speech.start}
-              disabled={!speech.supported}
-              aria-label={speech.isListening ? "Stop dictation" : "Start dictation"}
-            >
-              <Mic />
-            </button>
+            <div className="voice-control">
+              <button
+                className={speech.isListening ? "voice-button listening" : "voice-button"}
+                type="button"
+                onClick={speech.isListening ? speech.stop : speech.start}
+                disabled={!speech.supported}
+                aria-label={speech.isListening ? "Stop dictation" : "Start dictation"}
+              >
+                <Mic />
+              </button>
+              <div className={speech.transcript ? "live-transcript active" : "live-transcript"} aria-live="polite">
+                {speech.transcript || " "}
+              </div>
+            </div>
             <SaveStatus state={saveState} />
           </footer>
           <ReflectionPanel insight={insight} state="idle" error="" onReflect={() => setInsight(localPreviewInsight(content))} />
@@ -1368,6 +1372,15 @@ function JournalApp({ user }: { user: User }) {
   }
 
   function openShareChoice() {
+    if (!activeDreamMatch?.yourDream?.id) {
+      setCircleState("error");
+      setCircleError("This dream match could not load your dream entry. Please close it and try again.");
+      setSocialStage("share");
+      return;
+    }
+
+    setCircleState("idle");
+    setCircleError("");
     setSocialStage("share");
   }
 
@@ -1430,6 +1443,10 @@ function JournalApp({ user }: { user: User }) {
     setCircleError("");
 
     try {
+      if (!matchToOpen.yourDream?.id) {
+        throw new Error("This match is missing your dream entry. Please close it and try from the latest match notification.");
+      }
+
       const { data } = await supabase.auth.getSession();
       const accessToken = data.session?.access_token || accessTokenRef.current;
       if (!accessToken) throw new Error("Sign in again to open Dream Circle.");
@@ -2041,8 +2058,6 @@ function JournalApp({ user }: { user: User }) {
             aria-label="Journal entry"
           />
 
-          {speech.transcript ? <div className="live-transcript">{speech.transcript}</div> : null}
-
           <footer className="entry-actions">
             <div className="voice-control">
               <button
@@ -2055,6 +2070,9 @@ function JournalApp({ user }: { user: User }) {
               >
                 <Mic />
               </button>
+              <div className={speech.transcript ? "live-transcript active" : "live-transcript"} aria-live="polite">
+                {speech.transcript || " "}
+              </div>
               {!speech.supported ? <span className="voice-note">Dictation unavailable</span> : null}
             </div>
             <div className="save-cluster">
