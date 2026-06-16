@@ -415,17 +415,13 @@ export async function runNightlyDreamMatching(options: NightlyDreamMatchOptions)
         if (score < MATCH_THRESHOLD) continue;
 
         const matchResult = await persistMatch(supabase, source.user_id, candidate.other.user_id, source, candidate.other, score);
-        if (!matchResult.created) {
-          result.existingMatchesSkipped += 1;
-          continue;
-        }
-
         const [sourceNotification, otherNotification] = await Promise.all([
           persistMatchNotification(supabase, source.user_id, matchResult.id, source.id, score),
           persistMatchNotification(supabase, candidate.other.user_id, matchResult.id, candidate.other.id, score),
         ]);
 
-        result.matchesCreated += 1;
+        if (matchResult.created) result.matchesCreated += 1;
+        else result.existingMatchesSkipped += 1;
         result.notificationsCreated += Number(sourceNotification.created) + Number(otherNotification.created);
         createdForEntry += 1;
       } catch (error) {
@@ -850,6 +846,9 @@ async function persistMatch(
   other: DbEntry,
   score: number,
 ): Promise<{ id: string; created: boolean }> {
+  const existingBeforeInsert = await findExistingMatch(supabase, userId, otherUserId, current.id, other.id);
+  if (existingBeforeInsert?.id) return { id: existingBeforeInsert.id, created: false };
+
   const { data, error } = (await supabase
     .from("dream_matches")
     .insert({
@@ -864,22 +863,39 @@ async function persistMatch(
     .maybeSingle()) as { data: { id?: string } | null; error: Error | null };
 
   if (error) {
-    const { data: existingMatches } = (await supabase
-      .from("dream_matches")
-      .select("id, entry_a_id, entry_b_id")
-      .or(`and(user_a_id.eq.${userId},user_b_id.eq.${otherUserId}),and(user_a_id.eq.${otherUserId},user_b_id.eq.${userId})`)
-      .limit(25)) as { data: Array<{ id?: string; entry_a_id?: string | null; entry_b_id?: string | null }> | null };
-
-    const existing = (existingMatches || []).find((match) => {
-      const entries = new Set([match.entry_a_id, match.entry_b_id]);
-      return entries.has(current.id) && entries.has(other.id);
-    });
+    const existing = await findExistingMatch(supabase, userId, otherUserId, current.id, other.id);
     if (existing?.id) return { id: existing.id, created: false };
     throw error;
   }
 
   if (!data?.id) throw new Error("Dream match could not be saved.");
   return { id: data.id, created: true };
+}
+
+async function findExistingMatch(
+  supabase: ReturnType<typeof createClient<any>>,
+  userId: string,
+  otherUserId: string,
+  currentEntryId: string,
+  otherEntryId: string,
+) {
+  const { data, error } = (await supabase
+    .from("dream_matches")
+    .select("id, user_a_id, user_b_id, entry_a_id, entry_b_id")
+    .in("user_a_id", [userId, otherUserId])
+    .in("user_b_id", [userId, otherUserId])
+    .limit(50)) as {
+    data: Array<{ id?: string; user_a_id?: string; user_b_id?: string; entry_a_id?: string | null; entry_b_id?: string | null }> | null;
+    error: Error | null;
+  };
+
+  if (error) throw error;
+
+  return (data || []).find((match) => {
+    const users = new Set([match.user_a_id, match.user_b_id]);
+    const entries = new Set([match.entry_a_id, match.entry_b_id]);
+    return users.has(userId) && users.has(otherUserId) && entries.has(currentEntryId) && entries.has(otherEntryId);
+  });
 }
 
 async function persistMatchNotification(

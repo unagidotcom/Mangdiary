@@ -55,6 +55,10 @@ export default async function handler(request: VercelRequest, reply: VercelRespo
       embeddingModel: process.env.OPENAI_EMBEDDING_MODEL,
     });
 
+    if (result.errors.length) {
+      console.warn("dream-match-run completed with errors", result.errors);
+    }
+
     return reply.status(result.errors.length ? 207 : 200).json(result);
   } catch (error) {
     console.error("dream-match-run failed", error);
