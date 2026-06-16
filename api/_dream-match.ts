@@ -923,9 +923,14 @@ async function persistMatchNotification(
     .eq("user_id", userId)
     .eq("type", "dream_match")
     .eq("related_match_id", matchId)
-    .maybeSingle<{ id: string }>();
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .returns<Array<{ id: string }>>();
 
-  if (existing?.id) return { created: false };
+  if (existing?.[0]?.id) {
+    await cleanupDuplicateMatchNotifications(supabase, userId, matchId);
+    return { created: false };
+  }
 
   const { error } = await supabase.from("notifications").insert({
     user_id: userId,
@@ -936,5 +941,26 @@ async function persistMatchNotification(
     related_entry_id: entryId,
   });
   if (error) throw error;
+  await cleanupDuplicateMatchNotifications(supabase, userId, matchId);
   return { created: true };
+}
+
+async function cleanupDuplicateMatchNotifications(
+  supabase: ReturnType<typeof createClient<any>>,
+  userId: string,
+  matchId: string,
+) {
+  const { data } = await supabase
+    .from("notifications")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("type", "dream_match")
+    .eq("related_match_id", matchId)
+    .order("created_at", { ascending: false })
+    .returns<Array<{ id: string }>>();
+
+  const duplicateIds = (data || []).slice(1).map((item) => item.id).filter(Boolean);
+  if (!duplicateIds.length) return;
+
+  await supabase.from("notifications").delete().in("id", duplicateIds).eq("user_id", userId);
 }

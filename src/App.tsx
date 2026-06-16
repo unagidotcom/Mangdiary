@@ -699,6 +699,7 @@ function JournalApp({ user }: { user: User }) {
   const accessTokenRef = useRef("");
   const chatPollingRef = useRef(false);
   const notificationsPollingRef = useRef(false);
+  const dreamMatchRunInFlightRef = useRef<Set<string>>(new Set());
   const [autoTheme, setAutoTheme] = useState(themeForTime());
   const theme = autoTheme;
   const [entry, setEntry] = useState<JournalEntry | null>(null);
@@ -794,7 +795,7 @@ function JournalApp({ user }: { user: User }) {
       return;
     }
 
-    setNotifications((data || []).map(notificationFromDb));
+    setNotifications(dedupeNotifications((data || []).map(notificationFromDb)));
   }, [user.id]);
 
   useEffect(() => {
@@ -1270,6 +1271,8 @@ function JournalApp({ user }: { user: User }) {
 
   async function runDreamMatchForEntry(entryId: string, savedContent: string) {
     if (wordCount(savedContent) < 8) return;
+    if (dreamMatchRunInFlightRef.current.has(entryId)) return;
+    dreamMatchRunInFlightRef.current.add(entryId);
 
     try {
       const { data } = await supabase.auth.getSession();
@@ -1287,6 +1290,8 @@ function JournalApp({ user }: { user: User }) {
       await loadNotifications();
     } catch {
       return;
+    } finally {
+      dreamMatchRunInFlightRef.current.delete(entryId);
     }
   }
 
@@ -1344,14 +1349,14 @@ function JournalApp({ user }: { user: User }) {
 
   async function openDreamMatchFlow(notificationId: string) {
     const notification = notifications.find((item) => item.id === notificationId);
+    setMatchesOpen(false);
+    setSocialStage("consent");
     const match = notification?.relatedMatchId === activeDreamMatch?.id ? activeDreamMatch : await loadDreamMatch(notification?.relatedMatchId || null);
     if (!match) {
       setDreamMatchState("empty");
       return;
     }
     void markNotificationRead(notificationId);
-    setMatchesOpen(false);
-    setSocialStage("consent");
   }
 
   async function openMessageNotification(notificationId: string) {
@@ -1841,7 +1846,12 @@ function JournalApp({ user }: { user: User }) {
 
       <AnimatePresence>
         {socialStage === "consent" ? (
-          <MatchConsentOverlay onClose={() => setSocialStage("none")} onAccept={openShareChoice} onDecline={() => setSocialStage("none")} />
+          <MatchConsentOverlay
+            loading={dreamMatchState === "loading"}
+            onClose={() => setSocialStage("none")}
+            onAccept={openShareChoice}
+            onDecline={() => setSocialStage("none")}
+          />
         ) : null}
         {socialStage === "share" ? (
           <ShareDreamOverlay
@@ -1852,7 +1862,7 @@ function JournalApp({ user }: { user: User }) {
             onBack={() => setSocialStage("consent")}
             onClose={() => setSocialStage("none")}
             onAnonymousChange={setShareAnonymously}
-            onShare={openDreamCircle}
+            onShare={() => openDreamCircle()}
           />
         ) : null}
         {socialStage === "chat" ? (
@@ -2467,10 +2477,12 @@ function DreamMatchesDrawer({
 }
 
 function MatchConsentOverlay({
+  loading,
   onClose,
   onAccept,
   onDecline,
 }: {
+  loading: boolean;
   onClose: () => void;
   onAccept: () => void;
   onDecline: () => void;
@@ -2495,7 +2507,9 @@ function MatchConsentOverlay({
         <h2>A dreamer found you.</h2>
         <p>Someone has been dreaming about similar things. Their identity and dreams remain hidden.</p>
         <p>Would you like to explore a possible connection?</p>
-        <button className="social-primary" type="button" onClick={onAccept}>Yes, I am curious</button>
+        <button className="social-primary" type="button" onClick={onAccept} disabled={loading}>
+          {loading ? "Loading match..." : "Yes, I am curious"}
+        </button>
         <div className="social-text-actions">
           <button type="button" onClick={onClose}>Not right now</button>
           <button type="button" onClick={onDecline}>Decline</button>
@@ -2748,6 +2762,18 @@ function notificationFromDb(item: DbNotification): AppNotification {
     relatedMatchId: item.related_match_id,
     relatedEntryId: item.related_entry_id,
   };
+}
+
+function dedupeNotifications(items: AppNotification[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = item.relatedMatchId && (item.type === "dream_match" || item.type === "accepted_share" || item.type === "message")
+      ? `${item.type}:${item.relatedMatchId}`
+      : `${item.type}:${item.relatedEntryId || item.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function messageFromDb(item: DbCircleMessage, userId: string): ChatMessage {
