@@ -81,6 +81,18 @@ type DbCircleMessage = {
   created_at: string;
 };
 
+type LegalDocKey = "terms" | "privacy" | "cookies" | "ai" | "contact";
+
+type LegalDocument = {
+  title: string;
+  updated: string;
+  intro: string;
+  sections: Array<{
+    heading: string;
+    body: string[];
+  }>;
+};
+
 type ShareableDream = {
   id: string;
   date: string;
@@ -110,6 +122,187 @@ type ChatMessage = {
   author: "you" | "other" | "system";
   body: string;
   time: string;
+};
+
+const legalDocuments: Record<LegalDocKey, LegalDocument> = {
+  terms: {
+    title: "Terms and Conditions",
+    updated: "June 16, 2026",
+    intro: "These Terms govern your access to MangDiary, a private journaling and dream-reflection app.",
+    sections: [
+      {
+        heading: "Using MangDiary",
+        body: [
+          "You may use MangDiary to write journal entries and dreams, generate reflections, create memory images, upload a profile picture, receive dream-match notifications, and message users after both people choose to share.",
+          "You are responsible for the entries, profile details, messages, and other content you add to your account.",
+        ],
+      },
+      {
+        heading: "Accounts and security",
+        body: [
+          "You can sign in with Google or with an email or username after setting a password. Keep your password private and tell us if you believe your account has been accessed without permission.",
+          "We may suspend or limit accounts that misuse the service, attempt to access another user's data, abuse messaging, or interfere with the app.",
+        ],
+      },
+      {
+        heading: "AI reflections and dream matches",
+        body: [
+          "AI reflections, interpretations, image prompts, and dream matches are informational and creative features. They are not medical, psychological, legal, or professional advice.",
+          "Dream matching is based on automated similarity signals. A match does not mean two users know each other, shared a real event, or should disclose private information.",
+        ],
+      },
+      {
+        heading: "User content",
+        body: [
+          "Your journal entries remain yours. You give MangDiary the limited permission needed to store, process, display, back up, analyze, and transmit your content so the app can work.",
+          "Do not upload illegal content, content that violates another person's privacy or rights, or messages that harass, threaten, exploit, or impersonate others.",
+        ],
+      },
+      {
+        heading: "Availability and changes",
+        body: [
+          "MangDiary may change, pause, or discontinue features. We try to keep the app reliable, but we do not guarantee uninterrupted availability or error-free operation.",
+          "We may update these Terms when the app changes. Continued use after an update means you accept the updated Terms.",
+        ],
+      },
+    ],
+  },
+  privacy: {
+    title: "Privacy Policy",
+    updated: "June 16, 2026",
+    intro: "This Privacy Policy explains how MangDiary handles account data, private journal content, AI processing, dream matching, profile data, and device data.",
+    sections: [
+      {
+        heading: "Information we collect",
+        body: [
+          "Account information: email address, authentication provider, username, display name, password status, and profile details you choose to add.",
+          "Journal information: dreams, daily entries, summaries, reflections, mood labels, themes, generated image prompts, memory images, and saved dates.",
+          "Social information: dream-match records, match notifications, consent choices, shared dream references, anonymous sharing choices, and Dream Circle messages.",
+          "Technical information: device/browser data needed for login, security, session persistence, app performance, and troubleshooting.",
+        ],
+      },
+      {
+        heading: "How we use information",
+        body: [
+          "We use your information to operate the journal, save entries, authenticate your account, generate reflections and images, find dream matches, send notifications, show your profile, and support messaging after mutual consent.",
+          "We do not sell your journal entries or profile information. We do not use private dreams to advertise third-party products.",
+        ],
+      },
+      {
+        heading: "AI and service providers",
+        body: [
+          "MangDiary uses Supabase for authentication, database, storage, and server-side access controls.",
+          "When you request reflections, image generation, or dream matching, relevant text or derived data may be sent to AI providers such as Gemini. OpenAI may remain configured as a fallback for embeddings if enabled by the operator.",
+          "AI providers process the content needed to return the requested feature. Avoid entering content you do not want processed by these services.",
+        ],
+      },
+      {
+        heading: "Dream matching privacy",
+        body: [
+          "Dream matching runs server-side. Users do not see another user's raw dream text just because a match exists.",
+          "A match notification invites both users to accept. Sharing and conversation happen only after the app's consent flow.",
+        ],
+      },
+      {
+        heading: "Your choices",
+        body: [
+          "You can edit or delete entries in the journal, update your profile, upload or replace your profile picture, turn off dream matching in profile settings, and sign out at any time.",
+          "You can request access, correction, deletion, or other privacy help through the contact method listed in this app.",
+        ],
+      },
+      {
+        heading: "Children",
+        body: [
+          "MangDiary is not intended for children under 13. Do not use the app if you are under 13.",
+          "If we learn that a child under 13 provided personal information, we will take steps to delete it where required.",
+        ],
+      },
+    ],
+  },
+  cookies: {
+    title: "Cookie and Local Storage Policy",
+    updated: "June 16, 2026",
+    intro: "MangDiary uses cookies and browser storage to keep the app signed in, save drafts, remember interface state, and support security.",
+    sections: [
+      {
+        heading: "What we use",
+        body: [
+          "Authentication storage keeps you signed in through Supabase and supports session refresh.",
+          "Local storage may temporarily keep unsaved drafts, preview content, the welcome-screen state, and a daily reflection run marker.",
+          "Browser speech recognition is handled by the browser. MangDiary receives transcript text only when you use the microphone feature.",
+        ],
+      },
+      {
+        heading: "Analytics and advertising",
+        body: [
+          "MangDiary does not currently use advertising cookies or sell cookie-based behavioral profiles.",
+          "If analytics or marketing tools are added later, this policy should be updated before those tools are enabled.",
+        ],
+      },
+      {
+        heading: "Managing storage",
+        body: [
+          "You can clear cookies and site data through your browser settings. Clearing storage may sign you out and remove local unsaved drafts.",
+          "Some storage is necessary for login and app security, so the app may not work correctly if all cookies or local storage are blocked.",
+        ],
+      },
+    ],
+  },
+  ai: {
+    title: "AI and Wellness Notice",
+    updated: "June 16, 2026",
+    intro: "MangDiary uses AI to help reflect on dreams and journal entries. These features are supportive, not diagnostic.",
+    sections: [
+      {
+        heading: "Not professional advice",
+        body: [
+          "AI reflections, symbols, themes, memory images, analytics, and dream matches are not medical care, mental health treatment, crisis support, legal advice, or financial advice.",
+          "If you feel unsafe, distressed, or at risk of harming yourself or someone else, contact local emergency services or a qualified crisis support provider immediately.",
+        ],
+      },
+      {
+        heading: "How to read interpretations",
+        body: [
+          "Dream interpretations are creative readings based on the text you provide and may be incomplete, inaccurate, or emotionally wrong for you.",
+          "Use reflections as prompts for your own thinking. You do not need to accept an interpretation that does not feel useful.",
+        ],
+      },
+      {
+        heading: "Dream matching caution",
+        body: [
+          "Dream matches are similarity suggestions, not proof of shared experience or personal compatibility.",
+          "Share only what you are comfortable sharing and avoid revealing sensitive personal information to another user until you trust the conversation.",
+        ],
+      },
+    ],
+  },
+  contact: {
+    title: "Contact and Legal Requests",
+    updated: "June 16, 2026",
+    intro: "Use this notice for privacy, account, safety, and legal requests related to MangDiary.",
+    sections: [
+      {
+        heading: "Privacy and account requests",
+        body: [
+          "For access, deletion, correction, account, or privacy questions, contact the MangDiary operator using the official support email or contact channel published for the service.",
+          "Include the email or username on your account and the type of request you are making. Do not include your password.",
+        ],
+      },
+      {
+        heading: "Safety reports",
+        body: [
+          "If another user misuses Dream Circle messaging or pressures you to share private details, stop the conversation and report the issue through the available support channel.",
+          "If there is immediate danger, contact local emergency services first.",
+        ],
+      },
+      {
+        heading: "Legal review",
+        body: [
+          "These documents are a product-specific starting point. If MangDiary is operated commercially or made available in multiple regions, have qualified legal counsel review them before relying on them as final legal terms.",
+        ],
+      },
+    ],
+  },
 };
 
 export function App() {
@@ -161,6 +354,7 @@ function MissingConfig() {
         <h1>MangDiary</h1>
         <p>Add your Supabase environment values in `.env.local` to open the journal.</p>
       </section>
+      <LegalFooter />
     </main>
   );
 }
@@ -312,6 +506,7 @@ function LocalPreviewApp() {
           <ReflectionPanel insight={insight} state="idle" error="" onReflect={() => setInsight(localPreviewInsight(content))} />
         </section>
       </div>
+      <LegalFooter />
     </main>
   );
 }
@@ -421,6 +616,7 @@ function AuthScreen({ onStartedSignIn }: { onStartedSignIn: () => void }) {
         </div>
         <small>Your entries are saved under your authenticated Supabase user ID.</small>
       </motion.section>
+      <LegalFooter />
     </main>
   );
 }
@@ -454,6 +650,7 @@ function WelcomeScreen({ user, onContinue }: { user: User; onContinue: () => voi
         </div>
         <small>{user.email ? `Signed in as ${user.email}` : "Signed in with Google"}</small>
       </motion.section>
+      <LegalFooter />
     </main>
   );
 }
@@ -742,9 +939,11 @@ function JournalApp({ user }: { user: User }) {
         setSaveState("saved");
         setIssue(null);
         await loadEntries();
+        void runDreamMatchForEntry(createdEntry.id, nextContent);
         return;
       }
       if (!quiet) setSaveState("saving");
+      const shouldRunImmediateMatch = wordCount(entry.content) < 8 && wordCount(nextContent) >= 8;
       localStorage.setItem(draftKeyFor(entry.id), nextContent);
       const { data, error } = await supabase
         .from("journal_entries")
@@ -765,6 +964,7 @@ function JournalApp({ user }: { user: User }) {
       setIssue(null);
       localStorage.removeItem(draftKeyFor(entry.id));
       await loadEntries();
+      if (shouldRunImmediateMatch) void runDreamMatchForEntry(entry.id, nextContent);
     },
     [applyEntry, content, entry, loadEntries, today, user.id],
   );
@@ -1033,6 +1233,28 @@ function JournalApp({ user }: { user: User }) {
       .eq("user_id", user.id)
       .eq("related_match_id", matchId);
     await loadNotifications();
+  }
+
+  async function runDreamMatchForEntry(entryId: string, savedContent: string) {
+    if (wordCount(savedContent) < 8) return;
+
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token || accessTokenRef.current;
+      if (!accessToken) return;
+
+      await fetch("/api/dream-match-run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ entryId }),
+      });
+      await loadNotifications();
+    } catch {
+      return;
+    }
   }
 
   async function loadDreamMatch(matchId: string | null): Promise<ActiveDreamMatch | null> {
@@ -1777,6 +1999,7 @@ function JournalApp({ user }: { user: User }) {
             {weekly ? <PeriodCard icon={<Sparkles />} title="This Week" body={weekly} /> : null}
             {monthly ? <PeriodCard icon={<Moon />} title="This Month" body={monthly} /> : null}
           </section>
+          <LegalFooter />
         </section>
       </div>
       <BottomNav
@@ -1820,6 +2043,71 @@ function IssueNotice({ issue }: { issue: AppIssue }) {
       <strong>{issue.title}</strong>
       <p>{issue.detail}</p>
     </section>
+  );
+}
+
+function LegalFooter() {
+  const [openDoc, setOpenDoc] = useState<LegalDocKey | null>(null);
+  const links: Array<{ key: LegalDocKey; label: string }> = [
+    { key: "terms", label: "Terms" },
+    { key: "privacy", label: "Privacy" },
+    { key: "cookies", label: "Cookies" },
+    { key: "ai", label: "AI Notice" },
+    { key: "contact", label: "Contact" },
+  ];
+
+  return (
+    <>
+      <footer className="legal-footer" aria-label="Legal links">
+        {links.map((link) => (
+          <button key={link.key} type="button" onClick={() => setOpenDoc(link.key)}>
+            {link.label}
+          </button>
+        ))}
+      </footer>
+      <AnimatePresence>
+        {openDoc ? <LegalDocumentOverlay documentKey={openDoc} onClose={() => setOpenDoc(null)} /> : null}
+      </AnimatePresence>
+    </>
+  );
+}
+
+function LegalDocumentOverlay({ documentKey, onClose }: { documentKey: LegalDocKey; onClose: () => void }) {
+  const document = legalDocuments[documentKey];
+
+  return (
+    <OverlayLayer className="legal-overlay" onClose={onClose}>
+      <motion.article
+        className="legal-panel"
+        initial={{ opacity: 0, y: 18, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 18, scale: 0.98 }}
+        transition={{ duration: 0.2 }}
+        aria-label={document.title}
+      >
+        <div className="legal-panel-head">
+          <div>
+            <span>MangDiary</span>
+            <h2>{document.title}</h2>
+            <small>Effective {document.updated}</small>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close legal document">
+            <CloseIcon />
+          </button>
+        </div>
+        <p className="legal-intro">{document.intro}</p>
+        <div className="legal-sections">
+          {document.sections.map((section) => (
+            <section key={section.heading}>
+              <h3>{section.heading}</h3>
+              {section.body.map((paragraph) => (
+                <p key={paragraph}>{paragraph}</p>
+              ))}
+            </section>
+          ))}
+        </div>
+      </motion.article>
+    </OverlayLayer>
   );
 }
 

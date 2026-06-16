@@ -13,6 +13,7 @@
     "api/_dream-match.ts",
     "api/dream-circle.ts",
     "api/dream-match-cron.ts",
+    "api/dream-match-run.ts",
     "api/password-login.ts"
   ]
 }

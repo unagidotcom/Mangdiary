@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import dreamCircleHandler from "./api/dream-circle.js";
+import dreamMatchRunHandler from "./api/dream-match-run.js";
 import passwordLoginHandler from "./api/password-login.js";
 import { getDreamMatchById, runNightlyDreamMatching } from "./api/_dream-match.js";
 import { analyzeJournalContent, generateMemoryImageResult, normalizeKeyList } from "./api/_lumora.js";
@@ -91,6 +92,12 @@ function lumoraDevApi(env: Record<string, string>): Plugin {
           if (request.url.startsWith("/api/password-login")) {
             (request as typeof request & { body?: Record<string, unknown> }).body = body;
             await passwordLoginHandler(request as never, vercelReply(response) as never);
+            return;
+          }
+
+          if (request.url.startsWith("/api/dream-match-run")) {
+            (request as typeof request & { body?: Record<string, unknown> }).body = body;
+            await dreamMatchRunHandler(request as never, vercelReply(response) as never);
             return;
           }
 

@@ -133,6 +133,14 @@ create table if not exists public.dream_embeddings (
   unique (entry_id)
 );
 
+create table if not exists public.dream_match_scans (
+  entry_id uuid primary key references public.journal_entries(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  entry_updated_at timestamptz not null,
+  scanned_at timestamptz not null default now(),
+  matched_count integer not null default 0
+);
+
 create table if not exists public.dream_matches (
   id uuid primary key default gen_random_uuid(),
   user_a_id uuid not null references auth.users(id) on delete cascade,
@@ -212,6 +220,7 @@ alter table public.weekly_reflections enable row level security;
 alter table public.monthly_reflections enable row level security;
 alter table public.notifications enable row level security;
 alter table public.dream_embeddings enable row level security;
+alter table public.dream_match_scans enable row level security;
 alter table public.dream_matches enable row level security;
 alter table public.dream_circles enable row level security;
 alter table public.circle_members enable row level security;
@@ -387,6 +396,9 @@ on public.notifications (user_id, created_at desc);
 
 create index if not exists dream_embeddings_user_entry_idx
 on public.dream_embeddings (user_id, entry_id);
+
+create index if not exists dream_match_scans_user_scanned_idx
+on public.dream_match_scans (user_id, scanned_at desc);
 
 create index if not exists dream_matches_user_a_idx
 on public.dream_matches (user_a_id, created_at desc);

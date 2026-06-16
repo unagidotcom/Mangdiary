@@ -21,6 +21,11 @@ type DbProfile = {
   matching_enabled: boolean | null;
 };
 
+type DbDreamMatchScan = {
+  entry_id: string;
+  entry_updated_at: string;
+};
+
 export type DreamMatchPayload = {
   id: string;
   score: number;
@@ -66,6 +71,8 @@ type DreamMatchByIdOptions = DreamMatchOptions & {
 };
 
 type NightlyDreamMatchOptions = Omit<DreamMatchOptions, "accessToken"> & {
+  sourceEntryId?: string;
+  sourceUserId?: string;
   sourceWindowHours?: number;
   maxSourceEntries?: number;
   maxPoolEntries?: number;
@@ -338,33 +345,48 @@ export async function runNightlyDreamMatching(options: NightlyDreamMatchOptions)
   }
 
   const supabase = createClient(options.supabaseUrl, options.serviceRoleKey, { auth: { persistSession: false } });
-  const { data: profiles, error: profilesError } = await supabase
-    .from("profiles")
-    .select("id, username, display_name, avatar_url, matching_enabled")
-    .eq("matching_enabled", true)
-    .limit(2000)
-    .returns<DbProfile[]>();
-
-  if (profilesError) return { ...result, errors: [profilesError.message] };
-
-  const userIds = (profiles || []).map((profile) => profile.id);
-  if (userIds.length < 2) return result;
 
   const poolLimit = options.maxPoolEntries || NIGHTLY_POOL_LIMIT;
   const { data: entries, error: entriesError } = await supabase
     .from("journal_entries")
-    .select("id, user_id, content, summary, mood, themes, entry_date, entry_index, created_at")
-    .in("user_id", userIds)
+    .select("id, user_id, content, summary, mood, themes, entry_date, entry_index, created_at, updated_at")
     .order("created_at", { ascending: false })
     .limit(poolLimit)
     .returns<DbEntry[]>();
 
   if (entriesError) return { ...result, errors: [entriesError.message] };
 
-  const viableEntries = (entries || []).filter((entry) => wordCount(entry.content) >= 8);
-  const since = Date.now() - (options.sourceWindowHours || NIGHTLY_SOURCE_WINDOW_HOURS) * 60 * 60 * 1000;
+  const entryUserIds = Array.from(new Set((entries || []).map((entry) => entry.user_id)));
+  if (entryUserIds.length < 2) return result;
+
+  const { data: profiles, error: profilesError } = await supabase
+    .from("profiles")
+    .select("id, username, display_name, avatar_url, matching_enabled")
+    .in("id", entryUserIds)
+    .returns<DbProfile[]>();
+
+  if (profilesError) return { ...result, errors: [profilesError.message] };
+
+  const disabledUserIds = new Set((profiles || []).filter((profile) => profile.matching_enabled === false).map((profile) => profile.id));
+  const viableEntries = (entries || []).filter((entry) => !disabledUserIds.has(entry.user_id) && wordCount(entry.content) >= 8);
+  if (new Set(viableEntries.map((entry) => entry.user_id)).size < 2) return result;
+
+  const { data: scanRows, error: scansError } = await supabase
+    .from("dream_match_scans")
+    .select("entry_id, entry_updated_at")
+    .in("entry_id", viableEntries.map((entry) => entry.id))
+    .returns<DbDreamMatchScan[]>();
+
+  if (scansError) return { ...result, errors: [scansError.message] };
+
+  const scanByEntryId = new Map((scanRows || []).map((scan) => [scan.entry_id, scan]));
+  const recentSince = Date.now() - (options.sourceWindowHours || NIGHTLY_SOURCE_WINDOW_HOURS) * 60 * 60 * 1000;
   const sourceEntries = viableEntries
-    .filter((entry) => new Date(entry.created_at).getTime() >= since)
+    .filter((entry) => {
+      if (options.sourceEntryId && entry.id !== options.sourceEntryId) return false;
+      if (options.sourceUserId && entry.user_id !== options.sourceUserId) return false;
+      return shouldScanEntry(entry, scanByEntryId.get(entry.id), recentSince);
+    })
     .slice(0, options.maxSourceEntries || NIGHTLY_SOURCE_LIMIT);
 
   result.scannedEntries = sourceEntries.length;
@@ -410,9 +432,35 @@ export async function runNightlyDreamMatching(options: NightlyDreamMatchOptions)
         result.errors.push(error instanceof Error ? error.message : "A dream match candidate failed.");
       }
     }
+
+    const { error: scanError } = await supabase.from("dream_match_scans").upsert(
+      {
+        entry_id: source.id,
+        user_id: source.user_id,
+        entry_updated_at: entryUpdatedAt(source),
+        scanned_at: new Date().toISOString(),
+        matched_count: createdForEntry,
+      },
+      { onConflict: "entry_id" },
+    );
+    if (scanError) result.errors.push(scanError.message);
   }
 
   return result;
+}
+
+function shouldScanEntry(entry: DbEntry, scan: DbDreamMatchScan | undefined, recentSince: number) {
+  if (!scan) return true;
+  const updatedAt = new Date(entryUpdatedAt(entry)).getTime();
+  const scannedEntryVersion = new Date(scan.entry_updated_at).getTime();
+  if (Number.isFinite(updatedAt) && Number.isFinite(scannedEntryVersion) && updatedAt > scannedEntryVersion) return true;
+
+  const createdAt = new Date(entry.created_at).getTime();
+  return Number.isFinite(createdAt) && createdAt >= recentSince && scannedEntryVersion < createdAt;
+}
+
+function entryUpdatedAt(entry: DbEntry) {
+  return entry.updated_at || entry.created_at;
 }
 
 function buildPreliminaryCandidates(currentEntries: DbEntry[], otherEntries: DbEntry[], patternsByUser: Map<string, UserPatterns>) {
