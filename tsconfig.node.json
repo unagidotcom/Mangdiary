@@ -11,6 +11,7 @@
     "vite.config.ts",
     "api/_lumora.ts",
     "api/_dream-match.ts",
+    "api/transcribe.ts",
     "api/dream-circle.ts",
     "api/dream-match-cron.ts",
     "api/dream-match-run.ts",

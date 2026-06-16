@@ -591,6 +591,14 @@ body[data-theme="night"] h6 {
   z-index: 14;
 }
 
+.notification-overlay .overlay-backdrop {
+  background:
+    radial-gradient(circle at 16% 8%, var(--dream-glow-one), transparent 34%),
+    radial-gradient(circle at 82% 18%, var(--dream-glow-two), transparent 32%),
+    color-mix(in srgb, var(--bg) 82%, rgba(255, 255, 255, 0.22));
+  backdrop-filter: blur(12px);
+}
+
 .profile-overlay {
   z-index: 16;
 }
@@ -634,20 +642,23 @@ body[data-theme="night"] h6 {
 .notification-drawer {
   position: fixed;
   z-index: 14;
-  top: 18px;
-  right: 14px;
+  top: 10px;
+  right: 10px;
   display: grid;
   align-content: start;
-  gap: 12px;
-  width: min(336px, calc(100vw - 28px));
-  max-height: calc(100vh - 40px);
+  gap: 10px;
+  width: min(360px, calc(100vw - 20px));
+  max-height: calc(100vh - 20px);
   overflow: auto;
   box-sizing: border-box;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--paper);
-  padding: 14px;
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.2);
+  border: 0;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 18% 6%, var(--dream-glow-one), transparent 36%),
+    radial-gradient(circle at 92% 22%, var(--dream-glow-two), transparent 34%),
+    color-mix(in srgb, var(--paper-soft) 76%, var(--bg));
+  padding: 14px 14px 12px;
+  box-shadow: 0 24px 70px color-mix(in srgb, var(--text-primary) 16%, transparent);
 }
 
 .notification-head {
@@ -660,8 +671,16 @@ body[data-theme="night"] h6 {
 
 .notification-head h2 {
   margin: 0;
-  font-size: var(--type-h4);
+  font-size: 1.05rem;
   line-height: 1.2;
+}
+
+.notification-head .icon-button {
+  width: 36px;
+  height: 36px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 62%, transparent);
+  background: color-mix(in srgb, var(--paper-soft) 58%, transparent);
+  box-shadow: none;
 }
 
 .notification-read-all {
@@ -669,6 +688,68 @@ body[data-theme="night"] h6 {
   min-height: 32px;
   padding: 4px 0;
   line-height: 1.2;
+}
+
+.notification-filters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 84%, transparent);
+  border-radius: 0;
+  background: transparent;
+  padding: 0 0 10px;
+}
+
+.notification-filters button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 8px 10px;
+}
+
+.notification-filters svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+}
+
+.notification-filters button.active {
+  border-color: color-mix(in srgb, var(--color-accent) 32%, var(--color-border));
+  background: color-mix(in srgb, var(--paper) 88%, var(--color-accent) 7%);
+  color: var(--text-heading);
+  box-shadow: none;
+}
+
+.notification-filters span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-small);
+}
+
+.notification-filters strong {
+  display: grid;
+  place-items: center;
+  min-width: 21px;
+  height: 21px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--paper));
+  color: var(--color-accent);
+  font-size: var(--type-caption);
+  line-height: 1;
+}
+
+.notification-filters button.active strong {
+  background: var(--button-bg);
+  color: var(--button-text);
 }
 
 .notification-status {
@@ -701,22 +782,22 @@ body[data-theme="night"] h6 {
 
 .notification-list {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .notification-item {
   display: grid;
-  grid-template-columns: 28px 1fr;
-  gap: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--color-border) 74%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--paper-soft) 78%, transparent);
-  padding: 10px;
+  gap: 0;
+  border: 0;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--paper) 86%, var(--bg));
+  padding: 14px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-border) 72%, transparent);
 }
 
 .notification-item.unread {
-  border-color: color-mix(in srgb, #7f77dd 48%, var(--color-border));
-  background: color-mix(in srgb, #7f77dd 10%, var(--paper));
+  background: color-mix(in srgb, var(--paper) 82%, var(--color-accent) 8%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 36%, var(--color-border));
 }
 
 .notification-icon {
@@ -732,6 +813,53 @@ body[data-theme="night"] h6 {
 .notification-icon svg {
   width: 16px;
   height: 16px;
+}
+
+.notification-item-header {
+  display: grid;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+}
+
+.notification-item-header[aria-expanded="true"] .notification-item-chevron {
+  transform: rotate(180deg);
+}
+
+.notification-item-header-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-secondary);
+}
+
+.notification-item-header-meta small {
+  font-size: 0.72rem;
+}
+
+.notification-item-chevron {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  color: var(--color-accent);
+  transition: transform 180ms ease;
+}
+
+.notification-item-chevron svg {
+  width: 14px;
+  height: 14px;
+}
+
+.notification-item-details {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .notification-copy {
@@ -768,27 +896,165 @@ body[data-theme="night"] h6 {
 }
 
 .notification-actions {
-  grid-column: 2;
-  display: flex;
-  gap: 7px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.notification-actions.single {
+  grid-template-columns: 1fr;
 }
 
 .notification-actions button {
-  border: 1px solid var(--color-border);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
   border-radius: 8px;
-  background: var(--paper);
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
   color: var(--text-primary);
-  min-height: 40px;
-  padding: 8px 11px;
+  min-height: 34px;
+  padding: 8px 10px;
   font-size: var(--type-caption);
   font-weight: 760;
   line-height: 1.2;
 }
 
-.notification-actions button:first-child {
+.notification-actions button:last-child {
   border-color: transparent;
   background: var(--button-bg);
   color: var(--button-text);
+}
+
+.match-card-top,
+.whisper-card-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.whisper-card-top {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.match-avatar-pair {
+  position: relative;
+  width: 46px;
+  height: 30px;
+}
+
+.match-avatar-pair span {
+  position: absolute;
+  top: 0;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--paper));
+  color: var(--button-bg);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.match-avatar-pair span:first-child {
+  left: 0;
+}
+
+.match-avatar-pair span:last-child {
+  right: 0;
+  color: var(--color-accent);
+}
+
+.match-card-title,
+.whisper-card-top div {
+  min-width: 0;
+}
+
+.match-card-title span,
+.whisper-card-top span {
+  display: block;
+  color: var(--color-accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.match-card-title strong,
+.whisper-card-top strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text-heading);
+  font-size: var(--type-small);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.match-score {
+  justify-self: end;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 26%, var(--color-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--paper) 72%, var(--color-accent) 9%);
+  color: var(--color-accent);
+  padding: 5px 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.match-card-body {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0;
+  text-align: left;
+}
+
+.match-card-body span,
+.match-card-body small {
+  display: block;
+}
+
+.match-card-body span {
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.match-preview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.match-preview-grid div {
+  min-width: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--paper-soft));
+  padding: 9px;
+}
+
+.match-preview-grid span {
+  display: block;
+  color: var(--color-accent);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.match-preview-grid p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  margin: 5px 0 0;
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.32;
 }
 
 .social-overlay {
@@ -2738,9 +3004,7 @@ body[data-theme="night"] h6 {
     min-height: 100vh;
     max-height: none;
     border-radius: 0;
-    border-right: 0;
-    border-left: 0;
-    gap: 12px;
+    gap: 10px;
     padding: max(16px, env(safe-area-inset-top)) 14px max(104px, env(safe-area-inset-bottom));
   }
 
@@ -2764,13 +3028,11 @@ body[data-theme="night"] h6 {
   }
 
   .notification-list {
-    gap: 9px;
+    gap: 10px;
   }
 
   .notification-item {
-    grid-template-columns: 30px minmax(0, 1fr);
-    gap: 7px 10px;
-    padding: 11px;
+    padding: 12px;
   }
 
   .notification-icon {
@@ -2797,9 +3059,35 @@ body[data-theme="night"] h6 {
   }
 
   .notification-actions button {
-    min-width: 64px;
-    min-height: 40px;
-    padding: 8px 12px;
+    min-width: 0;
+    min-height: 36px;
+    padding: 8px 10px;
+  }
+
+  .notification-item-details {
+    margin-top: 8px;
+  }
+
+  .notification-filters button {
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .notification-filters span {
+    font-size: 0.82rem;
+  }
+
+  .match-card-top {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .match-score {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .match-preview-grid {
+    grid-template-columns: 1fr;
   }
 
   .social-overlay {

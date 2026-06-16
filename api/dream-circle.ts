@@ -4,8 +4,10 @@ import { createClient } from "@supabase/supabase-js";
 type DreamCircleRequest = {
   action?: string;
   matchId?: string;
+  circleId?: string;
   entryId?: string;
   anonymous?: boolean;
+  content?: string;
 };
 
 type DreamMatchRow = {
@@ -14,6 +16,20 @@ type DreamMatchRow = {
   user_b_id: string;
   entry_a_id: string | null;
   entry_b_id: string | null;
+};
+
+type CircleRow = {
+  id: string;
+  related_match_id: string | null;
+};
+
+type CircleMemberRow = {
+  user_id: string;
+};
+
+type ProfileRow = {
+  username: string | null;
+  display_name: string | null;
 };
 
 export default async function handler(request: VercelRequest, reply: VercelResponse) {
@@ -37,6 +53,11 @@ export default async function handler(request: VercelRequest, reply: VercelRespo
     if (authError || !user) return reply.status(401).json({ error: "User session could not be verified." });
 
     const body = readBody(request);
+    if (body.action === "message") {
+      const result = await sendCircleMessage(supabase, user.id, body);
+      return reply.status(200).json(result);
+    }
+
     if (body.action !== "open") return reply.status(400).json({ error: "Unsupported Dream Circle action." });
     if (!body.matchId || !body.entryId) return reply.status(400).json({ error: "Missing match or dream." });
 
@@ -107,6 +128,73 @@ export default async function handler(request: VercelRequest, reply: VercelRespo
     console.error("dream-circle failed", error);
     return reply.status(500).json({ error: error instanceof Error ? error.message : "Dream Circle failed." });
   }
+}
+
+async function sendCircleMessage(
+  supabase: ReturnType<typeof createClient<any>>,
+  userId: string,
+  body: DreamCircleRequest,
+) {
+  const content = body.content?.trim() || "";
+  if (!body.circleId) throw new Error("Missing Dream Circle.");
+  if (!content) throw new Error("Write a message first.");
+
+  const { data: circle, error: circleError } = await supabase
+    .from("dream_circles")
+    .select("id, related_match_id")
+    .eq("id", body.circleId)
+    .maybeSingle<CircleRow>();
+  if (circleError) throw circleError;
+  if (!circle) throw new Error("Dream Circle was not found.");
+
+  const { data: senderMembership, error: senderMemberError } = await supabase
+    .from("circle_members")
+    .select("user_id")
+    .eq("circle_id", body.circleId)
+    .eq("user_id", userId)
+    .is("left_at", null)
+    .maybeSingle<CircleMemberRow>();
+  if (senderMemberError) throw senderMemberError;
+  if (!senderMembership) throw new Error("You are not a member of this Dream Circle.");
+
+  const { data: message, error: messageError } = await supabase
+    .from("circle_messages")
+    .insert({ circle_id: body.circleId, sender_id: userId, content })
+    .select("id")
+    .single<{ id: string }>();
+  if (messageError) throw messageError;
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("username, display_name")
+    .eq("id", userId)
+    .maybeSingle<ProfileRow>();
+  const senderName = profile?.display_name || profile?.username || "A dreamer";
+
+  const { data: recipients, error: recipientsError } = await supabase
+    .from("circle_members")
+    .select("user_id")
+    .eq("circle_id", body.circleId)
+    .neq("user_id", userId)
+    .is("left_at", null)
+    .returns<CircleMemberRow[]>();
+  if (recipientsError) throw recipientsError;
+
+  const preview = content.length > 90 ? `${content.slice(0, 87)}...` : content;
+  const notificationRows = (recipients || []).map((recipient) => ({
+    user_id: recipient.user_id,
+    type: "message",
+    title: `${senderName} messaged you`,
+    body: preview,
+    related_match_id: circle.related_match_id,
+  }));
+
+  if (notificationRows.length) {
+    const { error: notificationError } = await supabase.from("notifications").insert(notificationRows);
+    if (notificationError) throw notificationError;
+  }
+
+  return { messageId: message.id };
 }
 
 function readBearerToken(value: string | undefined) {

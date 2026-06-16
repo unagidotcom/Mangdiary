@@ -28,6 +28,7 @@ import {
   Star,
   Trash2,
   UserRound,
+  ChevronDown,
   X as CloseIcon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -53,7 +54,7 @@ const welcomeSeenKey = "mangdiary-welcome-seen";
 
 type AppNotification = {
   id: string;
-  type: "dream_match" | "reflection_ready" | "memory_image" | "accepted_share" | "system";
+  type: "dream_match" | "reflection_ready" | "memory_image" | "accepted_share" | "message" | "system";
   title: string;
   body: string;
   time: string;
@@ -122,6 +123,10 @@ type ChatMessage = {
   author: "you" | "other" | "system";
   body: string;
   time: string;
+};
+
+type LoadCircleMessagesOptions = {
+  quiet?: boolean;
 };
 
 const legalDocuments: Record<LegalDocKey, LegalDocument> = {
@@ -688,6 +693,8 @@ function JournalApp({ user }: { user: User }) {
   const openedInitialBlankRef = useRef(false);
   const lastAnalyzedRef = useRef("");
   const accessTokenRef = useRef("");
+  const chatPollingRef = useRef(false);
+  const notificationsPollingRef = useRef(false);
   const [autoTheme, setAutoTheme] = useState(themeForTime());
   const theme = autoTheme;
   const [entry, setEntry] = useState<JournalEntry | null>(null);
@@ -788,6 +795,28 @@ function JournalApp({ user }: { user: User }) {
 
   useEffect(() => {
     void loadNotifications();
+  }, [loadNotifications]);
+
+  useEffect(() => {
+    let stopped = false;
+    const pollNotifications = async () => {
+      if (stopped || notificationsPollingRef.current) return;
+      notificationsPollingRef.current = true;
+      try {
+        await loadNotifications();
+      } finally {
+        notificationsPollingRef.current = false;
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      void pollNotifications();
+    }, 5000);
+
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
   }, [loadNotifications]);
 
   useEffect(() => {
@@ -1321,6 +1350,19 @@ function JournalApp({ user }: { user: User }) {
     setSocialStage("consent");
   }
 
+  async function openMessageNotification(notificationId: string) {
+    const notification = notifications.find((item) => item.id === notificationId);
+    const match = notification?.relatedMatchId === activeDreamMatch?.id ? activeDreamMatch : await loadDreamMatch(notification?.relatedMatchId || null);
+    if (!match) {
+      setDreamMatchState("empty");
+      return;
+    }
+
+    void markNotificationRead(notificationId);
+    setMatchesOpen(false);
+    await openDreamCircle(match);
+  }
+
   function skipDreamMatch(notificationId: string) {
     void markNotificationRead(notificationId);
   }
@@ -1329,7 +1371,7 @@ function JournalApp({ user }: { user: User }) {
     setSocialStage("share");
   }
 
-  async function loadCircleMessages(circleId: string) {
+  async function loadCircleMessages(circleId: string, options: LoadCircleMessagesOptions = {}) {
     const { data, error } = await supabase
       .from("circle_messages")
       .select("id, circle_id, sender_id, content, created_at")
@@ -1339,18 +1381,51 @@ function JournalApp({ user }: { user: User }) {
       .returns<DbCircleMessage[]>();
 
     if (error) {
-      setCircleState("error");
-      setCircleError(error.message);
-      setChatMessages([]);
+      if (!options.quiet) {
+        setCircleState("error");
+        setCircleError(error.message);
+        setChatMessages([]);
+      }
       return false;
     }
 
-    setChatMessages((data || []).map((message) => messageFromDb(message, user.id)));
+    const nextMessages = (data || []).map((message) => messageFromDb(message, user.id));
+    if (options.quiet) {
+      setChatMessages((currentMessages) => mergeCircleMessages(currentMessages, nextMessages));
+    } else {
+      setChatMessages(nextMessages);
+    }
+    if (!options.quiet) setCircleError("");
     return true;
   }
 
-  async function openDreamCircle() {
-    if (!activeDreamMatch) return;
+  useEffect(() => {
+    if (socialStage !== "chat" || !activeCircleId) return;
+
+    let stopped = false;
+    const pollCircleMessages = async () => {
+      if (stopped || chatPollingRef.current) return;
+      chatPollingRef.current = true;
+      try {
+        await loadCircleMessages(activeCircleId, { quiet: true });
+      } finally {
+        chatPollingRef.current = false;
+      }
+    };
+
+    void pollCircleMessages();
+    const timer = window.setInterval(() => {
+      void pollCircleMessages();
+    }, 1000);
+
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [activeCircleId, socialStage, user.id]);
+
+  async function openDreamCircle(matchToOpen = activeDreamMatch) {
+    if (!matchToOpen) return;
     setCircleState("opening");
     setCircleError("");
 
@@ -1367,8 +1442,8 @@ function JournalApp({ user }: { user: User }) {
         },
         body: JSON.stringify({
           action: "open",
-          matchId: activeDreamMatch.id,
-          entryId: activeDreamMatch.yourDream.id,
+          matchId: matchToOpen.id,
+          entryId: matchToOpen.yourDream.id,
           anonymous: shareAnonymously,
         }),
       });
@@ -1376,7 +1451,7 @@ function JournalApp({ user }: { user: User }) {
       if (!response.ok || !result.circleId || result.error) throw new Error(result.error || "Dream Circle could not open.");
 
       setActiveCircleId(result.circleId);
-      await markMatchNotificationsRead(activeDreamMatch.id);
+      await markMatchNotificationsRead(matchToOpen.id);
       const messagesLoaded = await loadCircleMessages(result.circleId);
       if (!messagesLoaded) return;
       setCircleState("ready");
@@ -1392,15 +1467,28 @@ function JournalApp({ user }: { user: User }) {
     if (!nextMessage || !activeCircleId) return;
     setChatDraft("");
 
-    const { error } = await supabase.from("circle_messages").insert({
-      circle_id: activeCircleId,
-      sender_id: user.id,
-      content: nextMessage,
-    });
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token || accessTokenRef.current;
+      if (!accessToken) throw new Error("Sign in again to send this message.");
 
-    if (error) {
+      const response = await fetch("/api/dream-circle", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          action: "message",
+          circleId: activeCircleId,
+          content: nextMessage,
+        }),
+      });
+      const result = await readJsonResponse<{ messageId?: string; error?: string }>(response);
+      if (!response.ok || result.error) throw new Error(result.error || "Message could not be sent.");
+    } catch (error) {
       setCircleState("error");
-      setCircleError(error.message);
+      setCircleError(error instanceof Error ? error.message : "Message could not be sent.");
       setChatDraft(nextMessage);
       return;
     }
@@ -1726,6 +1814,7 @@ function JournalApp({ user }: { user: User }) {
               matchState={dreamMatchState}
               onClose={() => setMatchesOpen(false)}
               onOpenDreamMatch={openDreamMatchFlow}
+              onOpenMessage={openMessageNotification}
               onSkipDreamMatch={skipDreamMatch}
               onReadNotification={markNotificationRead}
             />
@@ -2175,6 +2264,7 @@ function DreamMatchesDrawer({
   matchState,
   onClose,
   onOpenDreamMatch,
+  onOpenMessage,
   onSkipDreamMatch,
   onReadNotification,
 }: {
@@ -2182,9 +2272,126 @@ function DreamMatchesDrawer({
   matchState: "idle" | "loading" | "ready" | "empty" | "error";
   onClose: () => void;
   onOpenDreamMatch: (id: string) => void;
+  onOpenMessage: (id: string) => void;
   onSkipDreamMatch: (id: string) => void;
   onReadNotification: (id: string) => void;
 }) {
+  const matchItems = items.filter((item) => item.type === "dream_match");
+  const whisperItems = items.filter((item) => item.type === "message");
+  const [activeFilter, setActiveFilter] = useState<"matches" | "whispers">("matches");
+  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+  const selectedFilterRef = useRef(false);
+  const filteredItems = activeFilter === "matches" ? matchItems : whisperItems;
+
+  useEffect(() => {
+    if (selectedFilterRef.current) return;
+    if (matchItems.length === 0 && whisperItems.length > 0) setActiveFilter("whispers");
+  }, [matchItems.length, whisperItems.length]);
+
+  const selectFilter = (filter: "matches" | "whispers") => {
+    selectedFilterRef.current = true;
+    setActiveFilter(filter);
+  };
+
+  const openItem = (item: AppNotification) => {
+    if (item.type === "dream_match") {
+      onOpenDreamMatch(item.id);
+      return;
+    }
+    if (item.type === "message") {
+      onOpenMessage(item.id);
+      return;
+    }
+    onReadNotification(item.id);
+  };
+
+  const toggleItem = (id: string) => {
+    setExpandedItemId((current) => (current === id ? null : id));
+  };
+
+  const renderNotificationItem = (item: AppNotification) => {
+    const expanded = expandedItemId === item.id;
+    if (item.type === "dream_match") {
+      return (
+        <article className={item.isRead ? "notification-item match-card" : "notification-item match-card unread"} key={item.id}>
+          <button className="notification-item-header" type="button" aria-expanded={expanded} onClick={() => toggleItem(item.id)}>
+            <div className="match-card-top">
+              <div className="match-avatar-pair" aria-hidden="true">
+                <span>U</span>
+                <span>?</span>
+              </div>
+              <div className="match-card-title">
+                <span>Dream match found</span>
+                <strong>Unknown dreamer</strong>
+              </div>
+              <span className="match-score">{matchBadgeLabel(item.body)}</span>
+            </div>
+            <div className="notification-item-header-meta">
+              <small>{item.time}</small>
+              <span className="notification-item-chevron" aria-hidden="true">
+                <ChevronDown />
+              </span>
+            </div>
+          </button>
+
+          {expanded ? (
+            <div className="notification-item-details">
+              <button className="match-card-body" type="button" onClick={() => openItem(item)}>
+                <span>{item.body}</span>
+              </button>
+
+              <div className="match-preview-grid">
+                <div>
+                  <span>Your dream</span>
+                  <p>{matchPreviewSummary(item.body)}</p>
+                </div>
+                <div>
+                  <span>Their dream</span>
+                  <p>Hidden until you both agree to share with each other.</p>
+                </div>
+              </div>
+
+              <div className="notification-actions">
+                <button type="button" onClick={() => onSkipDreamMatch(item.id)}>Skip</button>
+                <button type="button" onClick={() => onOpenDreamMatch(item.id)}>Explore connection</button>
+              </div>
+            </div>
+          ) : null}
+        </article>
+      );
+    }
+
+    return (
+      <article className={item.isRead ? "notification-item whisper-card" : "notification-item whisper-card unread"} key={item.id}>
+        <button className="notification-item-header" type="button" aria-expanded={expanded} onClick={() => toggleItem(item.id)}>
+          <div className="whisper-card-top">
+            <div className="notification-icon">{notificationIcon(item.type)}</div>
+            <div>
+              <span>{item.type === "message" ? "New whisper" : "Update"}</span>
+              <strong>{item.title}</strong>
+            </div>
+          </div>
+          <div className="notification-item-header-meta">
+            <small>{item.time}</small>
+            <span className="notification-item-chevron" aria-hidden="true">
+              <ChevronDown />
+            </span>
+          </div>
+        </button>
+        {expanded ? (
+          <div className="notification-item-details">
+            <button className="notification-copy" type="button" onClick={() => openItem(item)}>
+              <span>{item.body}</span>
+            </button>
+            <div className="notification-actions single">
+              <button type="button" onClick={() => openItem(item)}>Open whisper</button>
+            </div>
+          </div>
+        ) : null}
+      </article>
+    );
+  };
+
   return (
     <motion.aside
       className="notification-drawer"
@@ -2200,31 +2407,42 @@ function DreamMatchesDrawer({
           <CloseIcon />
         </button>
       </div>
-      {matchState === "loading" ? <p className="notification-status">Opening dream match...</p> : null}
-      {items.length === 0 && matchState !== "loading" ? (
-        <p className="notification-status">If a dream matches overnight, it will show here.</p>
+
+      <div className="notification-filters" role="tablist" aria-label="Matches filters">
+        <button
+          className={activeFilter === "matches" ? "active" : ""}
+          type="button"
+          role="tab"
+          aria-selected={activeFilter === "matches"}
+          onClick={() => selectFilter("matches")}
+        >
+          <Sparkles />
+          <span>Matches</span>
+          <strong>{matchItems.length}</strong>
+        </button>
+        <button
+          className={activeFilter === "whispers" ? "active" : ""}
+          type="button"
+          role="tab"
+          aria-selected={activeFilter === "whispers"}
+          onClick={() => selectFilter("whispers")}
+        >
+          <MessageCircle />
+          <span>Whispers</span>
+          <strong>{whisperItems.length}</strong>
+        </button>
+      </div>
+
+      {matchState === "loading" && activeFilter === "matches" ? <p className="notification-status">Opening dream match...</p> : null}
+      {filteredItems.length === 0 && !(matchState === "loading" && activeFilter === "matches") ? (
+        <p className="notification-status">
+          {activeFilter === "matches"
+            ? "If a dream matches overnight, it will show here."
+            : "When someone sends a message in Dream Circle, it will show here."}
+        </p>
       ) : null}
       <div className="notification-list">
-        {items.map((item) => (
-          <article className={item.isRead ? "notification-item" : "notification-item unread"} key={item.id}>
-            <div className="notification-icon">{notificationIcon(item.type)}</div>
-            <button
-              className="notification-copy"
-              type="button"
-              onClick={() => (item.type === "dream_match" ? onOpenDreamMatch(item.id) : onReadNotification(item.id))}
-            >
-              <strong>{item.title}</strong>
-              <span>{item.body}</span>
-              <small>{item.time}</small>
-            </button>
-            {item.type === "dream_match" ? (
-              <div className="notification-actions">
-                <button type="button" onClick={() => onOpenDreamMatch(item.id)}>Accept</button>
-                <button type="button" onClick={() => onSkipDreamMatch(item.id)}>Skip</button>
-              </div>
-            ) : null}
-          </article>
-        ))}
+        {filteredItems.map(renderNotificationItem)}
       </div>
     </motion.aside>
   );
@@ -2523,6 +2741,26 @@ function messageFromDb(item: DbCircleMessage, userId: string): ChatMessage {
   };
 }
 
+function mergeCircleMessages(currentMessages: ChatMessage[], nextMessages: ChatMessage[]) {
+  if (currentMessages.length > nextMessages.length) {
+    const nextIds = new Set(nextMessages.map((message) => message.id));
+    const hasLocalMessagesMissingFromSnapshot = currentMessages.some((message) => !nextIds.has(message.id));
+    if (hasLocalMessagesMissingFromSnapshot) return currentMessages;
+  }
+
+  if (
+    currentMessages.length === nextMessages.length &&
+    currentMessages.every((message, index) => {
+      const nextMessage = nextMessages[index];
+      return nextMessage && message.id === nextMessage.id && message.body === nextMessage.body && message.time === nextMessage.time;
+    })
+  ) {
+    return currentMessages;
+  }
+
+  return nextMessages;
+}
+
 function relativeTimeLabel(value: string) {
   const createdAt = new Date(value).getTime();
   const diffMs = Date.now() - createdAt;
@@ -2543,7 +2781,24 @@ function notificationIcon(type: AppNotification["type"]) {
   if (type === "reflection_ready") return <Star />;
   if (type === "memory_image") return <Image />;
   if (type === "accepted_share") return <Heart />;
+  if (type === "message") return <MessageCircle />;
   return <Info />;
+}
+
+function matchBadgeLabel(body: string) {
+  const normalized = body.toLowerCase();
+  if (normalized.includes("same dreamscape")) return "Strong match";
+  if (normalized.includes("dreaming in parallel")) return "Close match";
+  if (normalized.includes("faint echo")) return "Soft match";
+  return "Match";
+}
+
+function matchPreviewSummary(body: string) {
+  const normalized = body.toLowerCase();
+  if (normalized.includes("same dreamscape")) return "A recent dream of yours carries a strong shared atmosphere with another dreamer.";
+  if (normalized.includes("dreaming in parallel")) return "A recent dream of yours is moving in parallel with another dreamer's symbols and feeling.";
+  if (normalized.includes("faint echo")) return "A recent dream of yours is sending a softer echo that may still be meaningful.";
+  return "One of your recent dreams is resonating with another dreamer.";
 }
 
 type ProfileForm = {

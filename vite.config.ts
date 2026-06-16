@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 import dreamCircleHandler from "./api/dream-circle.js";
 import dreamMatchRunHandler from "./api/dream-match-run.js";
 import passwordLoginHandler from "./api/password-login.js";
+import transcribeHandler from "./api/transcribe.js";
 import { getDreamMatchById, runNightlyDreamMatching } from "./api/_dream-match.js";
 import { analyzeJournalContent, generateMemoryImageResult, normalizeKeyList } from "./api/_lumora.js";
 
@@ -27,9 +28,17 @@ function lumoraDevApi(env: Record<string, string>): Plugin {
         }
 
         try {
-          const allowsGet = request.url.startsWith("/api/dream-match-cron");
+          const isTranscribeRoute = request.url.startsWith("/api/transcribe");
+          const allowsGet = request.url.startsWith("/api/dream-match-cron") || isTranscribeRoute;
           if (request.method !== "POST" && !(allowsGet && request.method === "GET")) {
             sendJson(response, 405, { error: "Method not allowed" });
+            return;
+          }
+
+          if (isTranscribeRoute) {
+            process.env.GROQ_API_KEY = env.GROQ_API_KEY || process.env.GROQ_API_KEY;
+            process.env.GROQ_TRANSCRIPTION_MODEL = env.GROQ_TRANSCRIPTION_MODEL || process.env.GROQ_TRANSCRIPTION_MODEL;
+            await transcribeHandler(request as never, vercelReply(response) as never);
             return;
           }
 
