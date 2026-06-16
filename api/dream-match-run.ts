@@ -59,7 +59,7 @@ export default async function handler(request: VercelRequest, reply: VercelRespo
       console.warn("dream-match-run completed with errors", result.errors);
     }
 
-    return reply.status(result.errors.length ? 207 : 200).json(result);
+    return reply.status(200).json(result);
   } catch (error) {
     console.error("dream-match-run failed", error);
     return reply.status(500).json({ error: error instanceof Error ? error.message : "Dream matching failed." });

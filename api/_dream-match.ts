@@ -425,7 +425,7 @@ export async function runNightlyDreamMatching(options: NightlyDreamMatchOptions)
         result.notificationsCreated += Number(sourceNotification.created) + Number(otherNotification.created);
         createdForEntry += 1;
       } catch (error) {
-        result.errors.push(error instanceof Error ? error.message : "A dream match candidate failed.");
+        result.errors.push(`Candidate ${source.id} -> ${candidate.other.id} failed: ${errorMessage(error)}`);
       }
     }
 
@@ -457,6 +457,18 @@ function shouldScanEntry(entry: DbEntry, scan: DbDreamMatchScan | undefined, rec
 
 function entryUpdatedAt(entry: DbEntry) {
   return entry.updated_at || entry.created_at;
+}
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const value = error as Record<string, unknown>;
+    return [value.message, value.code ? `code ${value.code}` : "", value.details, value.hint]
+      .filter((item) => typeof item === "string" && item.trim().length > 0)
+      .join(" | ") || JSON.stringify(value);
+  }
+  return "Unknown error";
 }
 
 function buildPreliminaryCandidates(currentEntries: DbEntry[], otherEntries: DbEntry[], patternsByUser: Map<string, UserPatterns>) {
