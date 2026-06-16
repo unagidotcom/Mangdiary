@@ -1266,15 +1266,22 @@ body[data-theme="night"] h6 {
 .circle-chat-shell {
   position: fixed;
   z-index: 19;
-  inset: 0;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  left: auto;
   display: grid;
   grid-template-rows: auto auto 1fr auto;
-  width: min(100%, 900px);
-  margin: 0 auto;
-  min-height: 100vh;
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
   background: #101116;
   color: #f4f2ff;
-  box-shadow: 0 0 0 100vmax #101116;
+  box-shadow:
+    0 26px 70px rgba(6, 6, 15, 0.34),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .circle-chat-head {
@@ -3142,6 +3149,16 @@ body[data-theme="night"] h6 {
 
   .pinned-grid {
     grid-template-columns: 1fr;
+  }
+
+  .circle-chat-shell {
+    inset: 0;
+    width: 100%;
+    max-height: none;
+    min-height: 100vh;
+    border: 0;
+    border-radius: 0;
+    box-shadow: 0 0 0 100vmax #101116;
   }
 
   .chat-row {

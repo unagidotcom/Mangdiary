@@ -26,6 +26,12 @@ type DbDreamMatchScan = {
   entry_updated_at: string;
 };
 
+type DbOpenDreamMatchPair = {
+  id: string;
+  user_a_id: string;
+  user_b_id: string;
+};
+
 export type DreamMatchPayload = {
   id: string;
   score: number;
@@ -413,6 +419,7 @@ export async function runNightlyDreamMatching(options: NightlyDreamMatchOptions)
   result.scannedEntries = sourceEntries.length;
   if (!sourceEntries.length) return result;
 
+  const openPairKeys = await loadOpenMatchPairKeys(supabase, Array.from(new Set(viableEntries.map((entry) => entry.user_id))));
   const patternsByUser = buildUserPatterns(viableEntries);
   const runtime: EmbeddingRuntime = {
     cache: new Map(),
@@ -424,7 +431,12 @@ export async function runNightlyDreamMatching(options: NightlyDreamMatchOptions)
 
   for (const source of sourceEntries) {
     let createdForEntry = 0;
-    const candidatePool = viableEntries.filter((entry) => entry.id !== source.id && entry.user_id !== source.user_id);
+    const candidatePool = viableEntries.filter(
+      (entry) =>
+        entry.id !== source.id &&
+        entry.user_id !== source.user_id &&
+        !openPairKeys.has(dreamerPairKey(source.user_id, entry.user_id)),
+    );
     const candidates = buildPreliminaryCandidates([source], candidatePool, patternsByUser).slice(0, candidatesPerEntry);
 
     for (const candidate of candidates) {
@@ -444,6 +456,7 @@ export async function runNightlyDreamMatching(options: NightlyDreamMatchOptions)
         if (matchResult.created) result.matchesCreated += 1;
         else result.existingMatchesSkipped += 1;
         result.notificationsCreated += Number(sourceNotification.created) + Number(otherNotification.created);
+        openPairKeys.add(dreamerPairKey(source.user_id, candidate.other.user_id));
         createdForEntry += 1;
       } catch (error) {
         result.errors.push(`Candidate ${source.id} -> ${candidate.other.id} failed: ${errorMessage(error)}`);
@@ -464,6 +477,25 @@ export async function runNightlyDreamMatching(options: NightlyDreamMatchOptions)
   }
 
   return result;
+}
+
+async function loadOpenMatchPairKeys(supabase: ReturnType<typeof createClient<any>>, userIds: string[]) {
+  if (userIds.length < 2) return new Set<string>();
+
+  const { data, error } = await supabase
+    .from("dream_matches")
+    .select("id, user_a_id, user_b_id")
+    .in("user_a_id", userIds)
+    .in("user_b_id", userIds)
+    .in("status", ["pending", "active"])
+    .returns<DbOpenDreamMatchPair[]>();
+
+  if (error) throw error;
+  return new Set((data || []).map((match) => dreamerPairKey(match.user_a_id, match.user_b_id)));
+}
+
+function dreamerPairKey(leftUserId: string, rightUserId: string) {
+  return [leftUserId, rightUserId].sort().join(":");
 }
 
 function shouldScanEntry(entry: DbEntry, scan: DbDreamMatchScan | undefined, recentSince: number) {
@@ -914,15 +946,31 @@ async function findExistingMatch(
 ) {
   const { data, error } = (await supabase
     .from("dream_matches")
-    .select("id, user_a_id, user_b_id, entry_a_id, entry_b_id")
+    .select("id, user_a_id, user_b_id, entry_a_id, entry_b_id, status, updated_at")
     .in("user_a_id", [userId, otherUserId])
     .in("user_b_id", [userId, otherUserId])
+    .in("status", ["pending", "active"])
+    .order("updated_at", { ascending: false })
     .limit(50)) as {
-    data: Array<{ id?: string; user_a_id?: string; user_b_id?: string; entry_a_id?: string | null; entry_b_id?: string | null }> | null;
+    data: Array<{
+      id?: string;
+      user_a_id?: string;
+      user_b_id?: string;
+      entry_a_id?: string | null;
+      entry_b_id?: string | null;
+      status?: string;
+      updated_at?: string | null;
+    }> | null;
     error: Error | null;
   };
 
   if (error) throw error;
+
+  const openPairMatch = (data || []).find((match) => {
+    const users = new Set([match.user_a_id, match.user_b_id]);
+    return users.has(userId) && users.has(otherUserId);
+  });
+  if (openPairMatch) return openPairMatch;
 
   return (data || []).find((match) => {
     const users = new Set([match.user_a_id, match.user_b_id]);

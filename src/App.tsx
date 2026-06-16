@@ -61,6 +61,7 @@ type AppNotification = {
   isRead: boolean;
   relatedMatchId: string | null;
   relatedEntryId: string | null;
+  matchPairKey?: string;
 };
 
 type DbNotification = {
@@ -80,6 +81,12 @@ type DbCircleMessage = {
   sender_id: string;
   content: string;
   created_at: string;
+};
+
+type DbNotificationMatch = {
+  id: string;
+  user_a_id: string;
+  user_b_id: string;
 };
 
 type LegalDocKey = "terms" | "privacy" | "cookies" | "ai" | "contact";
@@ -798,7 +805,34 @@ function JournalApp({ user }: { user: User }) {
       return;
     }
 
-    setNotifications(dedupeNotifications((data || []).map(notificationFromDb)));
+    const nextNotifications = (data || []).map(notificationFromDb);
+    const matchIds = Array.from(
+      new Set(
+        nextNotifications
+          .filter((item) => item.type === "dream_match" && item.relatedMatchId)
+          .map((item) => item.relatedMatchId as string),
+      ),
+    );
+
+    if (matchIds.length) {
+      const { data: matches } = await supabase
+        .from("dream_matches")
+        .select("id, user_a_id, user_b_id")
+        .in("id", matchIds)
+        .returns<DbNotificationMatch[]>();
+      const pairKeyByMatchId = new Map((matches || []).map((match) => [match.id, dreamerPairKey(match.user_a_id, match.user_b_id)]));
+      setNotifications(
+        dedupeNotifications(
+          nextNotifications.map((item) => ({
+            ...item,
+            matchPairKey: item.relatedMatchId ? pairKeyByMatchId.get(item.relatedMatchId) : undefined,
+          })),
+        ),
+      );
+      return;
+    }
+
+    setNotifications(dedupeNotifications(nextNotifications));
   }, [user.id]);
 
   useEffect(() => {
@@ -1365,14 +1399,21 @@ function JournalApp({ user }: { user: User }) {
 
   async function openMessageNotification(notificationId: string) {
     const notification = notifications.find((item) => item.id === notificationId);
+    setMatchesOpen(false);
+    setCircleState("opening");
+    setCircleError("");
+    setChatMessages([]);
+    setSocialStage("chat");
+
     const match = notification?.relatedMatchId === activeDreamMatch?.id ? activeDreamMatch : await loadDreamMatch(notification?.relatedMatchId || null);
     if (!match) {
       setDreamMatchState("empty");
+      setCircleState("error");
+      setCircleError("This Dream Circle could not be opened.");
       return;
     }
 
     void markNotificationRead(notificationId);
-    setMatchesOpen(false);
     await openDreamCircle(match);
   }
 
@@ -1482,7 +1523,6 @@ function JournalApp({ user }: { user: User }) {
       const messagesLoaded = await loadCircleMessages(result.circleId);
       if (!messagesLoaded) return;
       setCircleState("ready");
-      setSocialStage("chat");
     } catch (error) {
       setCircleState("error");
       setCircleError(error instanceof Error ? error.message : "Dream Circle could not open.");
@@ -2397,7 +2437,7 @@ function DreamMatchesDrawer({
 
     return (
       <article className={item.isRead ? "notification-item whisper-card" : "notification-item whisper-card unread"} key={item.id}>
-        <button className="notification-item-header" type="button" aria-expanded={expanded} onClick={() => toggleItem(item.id)}>
+        <button className="notification-item-header" type="button" onClick={() => openItem(item)}>
           <div className="whisper-card-top">
             <div className="notification-icon">{notificationIcon(item.type)}</div>
             <div>
@@ -2407,21 +2447,8 @@ function DreamMatchesDrawer({
           </div>
           <div className="notification-item-header-meta">
             <small>{item.time}</small>
-            <span className="notification-item-chevron" aria-hidden="true">
-              <ChevronDown />
-            </span>
           </div>
         </button>
-        {expanded ? (
-          <div className="notification-item-details">
-            <button className="notification-copy" type="button" onClick={() => openItem(item)}>
-              <span>{item.body}</span>
-            </button>
-            <div className="notification-actions single">
-              <button type="button" onClick={() => openItem(item)}>Open whisper</button>
-            </div>
-          </div>
-        ) : null}
       </article>
     );
   };
@@ -2661,8 +2688,9 @@ function DreamCircleChat({
 
       <div className="chat-stream">
         <span className="chat-day">Messages</span>
+        {state === "opening" ? <p className="chat-empty">Opening Dream Circle...</p> : null}
         {state === "error" && error ? <p className="social-error">{error}</p> : null}
-        {messages.length === 0 && state !== "error" ? <p className="chat-empty">No messages yet.</p> : null}
+        {messages.length === 0 && state !== "error" && state !== "opening" ? <p className="chat-empty">No messages yet.</p> : null}
         {messages.map((message) => {
           const sender = chatSenderFor(message.author, {
             currentUserAnonymous,
@@ -2777,13 +2805,19 @@ function notificationFromDb(item: DbNotification): AppNotification {
 function dedupeNotifications(items: AppNotification[]) {
   const seen = new Set<string>();
   return items.filter((item) => {
-    const key = item.relatedMatchId && (item.type === "dream_match" || item.type === "accepted_share" || item.type === "message")
+    const key = item.type === "dream_match" && item.matchPairKey
+      ? `${item.type}:${item.matchPairKey}`
+      : item.relatedMatchId && (item.type === "dream_match" || item.type === "accepted_share" || item.type === "message")
       ? `${item.type}:${item.relatedMatchId}`
       : `${item.type}:${item.relatedEntryId || item.id}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+}
+
+function dreamerPairKey(leftUserId: string, rightUserId: string) {
+  return [leftUserId, rightUserId].sort().join(":");
 }
 
 function messageFromDb(item: DbCircleMessage, userId: string): ChatMessage {
