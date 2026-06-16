@@ -29,6 +29,9 @@ type DbDreamMatchScan = {
 export type DreamMatchPayload = {
   id: string;
   score: number;
+  currentUserAnonymous: boolean;
+  otherUserAnonymous: boolean;
+  canReadTheirDream: boolean;
   otherProfile: {
     id: string;
     displayName: string;
@@ -234,8 +237,6 @@ export async function findDreamMatch(options: DreamMatchOptions): Promise<DreamM
   if (!best || best.score < MATCH_THRESHOLD) return { match: null };
 
   const matchResult = await persistMatch(supabase, user.id, best.other.user_id, best.current, best.other, best.score);
-  const otherProfile = profileById.get(best.other.user_id);
-  const otherName = otherProfile?.display_name || otherProfile?.username || "Matched dreamer";
   await Promise.all([
     persistMatchNotification(supabase, user.id, matchResult.id, best.current.id, best.score),
     persistMatchNotification(supabase, best.other.user_id, matchResult.id, best.other.id, best.score),
@@ -245,10 +246,13 @@ export async function findDreamMatch(options: DreamMatchOptions): Promise<DreamM
     match: {
       id: matchResult.id,
       score: best.score,
+      currentUserAnonymous: true,
+      otherUserAnonymous: true,
+      canReadTheirDream: false,
       otherProfile: {
         id: best.other.user_id,
-        displayName: otherName,
-        avatarUrl: otherProfile?.avatar_url || "",
+        displayName: "Anonymous",
+        avatarUrl: "",
       },
       yourDream: dreamPayload(best.current, best.score),
       theirDream: {
@@ -273,7 +277,7 @@ export async function getDreamMatchById(options: DreamMatchByIdOptions): Promise
 
   const { data: match, error: matchError } = await supabase
     .from("dream_matches")
-    .select("id, user_a_id, user_b_id, entry_a_id, entry_b_id, score")
+    .select("id, user_a_id, user_b_id, entry_a_id, entry_b_id, score, consent_a, consent_b, share_a_entry_id, share_b_entry_id, share_a_anonymous, share_b_anonymous")
     .eq("id", options.matchId)
     .maybeSingle<{
       id: string;
@@ -282,6 +286,12 @@ export async function getDreamMatchById(options: DreamMatchByIdOptions): Promise
       entry_a_id: string | null;
       entry_b_id: string | null;
       score: number;
+      consent_a: string;
+      consent_b: string;
+      share_a_entry_id: string | null;
+      share_b_entry_id: string | null;
+      share_a_anonymous: boolean;
+      share_b_anonymous: boolean;
     }>();
 
   if (matchError) return { match: null, error: matchError.message };
@@ -291,21 +301,29 @@ export async function getDreamMatchById(options: DreamMatchByIdOptions): Promise
   }
   if (!match.entry_a_id || !match.entry_b_id) return { match: null, error: "Dream match is missing an entry." };
 
+  const currentUserIsA = match.user_a_id === user.id;
+  const yourEntryId = currentUserIsA ? match.share_a_entry_id || match.entry_a_id : match.share_b_entry_id || match.entry_b_id;
+  const theirEntryId = currentUserIsA ? match.share_b_entry_id || match.entry_b_id : match.share_a_entry_id || match.entry_a_id;
+  const entryIds = Array.from(new Set([match.entry_a_id, match.entry_b_id, yourEntryId, theirEntryId].filter(Boolean))) as string[];
+
   const { data: entries, error: entriesError } = await supabase
     .from("journal_entries")
     .select("id, user_id, content, summary, mood, themes, entry_date, entry_index, created_at")
-    .in("id", [match.entry_a_id, match.entry_b_id])
+    .in("id", entryIds)
     .returns<DbEntry[]>();
 
   if (entriesError) return { match: null, error: entriesError.message };
 
-  const yourEntryId = match.user_a_id === user.id ? match.entry_a_id : match.entry_b_id;
-  const theirEntryId = match.user_a_id === user.id ? match.entry_b_id : match.entry_a_id;
   const yourDream = (entries || []).find((entry) => entry.id === yourEntryId);
   const theirDream = (entries || []).find((entry) => entry.id === theirEntryId);
   if (!yourDream || !theirDream) return { match: null, error: "Dream match entries could not be loaded." };
 
-  const otherUserId = match.user_a_id === user.id ? match.user_b_id : match.user_a_id;
+  const otherUserId = currentUserIsA ? match.user_b_id : match.user_a_id;
+  const currentUserAnonymous = currentUserIsA ? match.share_a_anonymous : match.share_b_anonymous;
+  const otherUserAnonymous = currentUserIsA ? match.share_b_anonymous : match.share_a_anonymous;
+  const bothAccepted = match.consent_a === "accepted" && match.consent_b === "accepted";
+  const bothShared = Boolean(match.share_a_entry_id && match.share_b_entry_id);
+  const canReadTheirDream = bothAccepted && bothShared;
   const { data: otherProfile } = await supabase
     .from("profiles")
     .select("id, username, display_name, avatar_url, matching_enabled")
@@ -316,15 +334,18 @@ export async function getDreamMatchById(options: DreamMatchByIdOptions): Promise
     match: {
       id: match.id,
       score: match.score,
+      currentUserAnonymous,
+      otherUserAnonymous,
+      canReadTheirDream,
       otherProfile: {
         id: otherUserId,
-        displayName: otherProfile?.display_name || otherProfile?.username || "Matched dreamer",
-        avatarUrl: otherProfile?.avatar_url || "",
+        displayName: otherUserAnonymous ? "Anonymous" : otherProfile?.display_name || otherProfile?.username || "Matched dreamer",
+        avatarUrl: otherUserAnonymous ? "" : otherProfile?.avatar_url || "",
       },
       yourDream: dreamPayload(yourDream, match.score),
       theirDream: {
         ...dreamPayload(theirDream, match.score),
-        content: theirDream.summary || entryExcerpt(theirDream.content),
+        content: canReadTheirDream ? theirDream.content : theirDream.summary || entryExcerpt(theirDream.content),
       },
     },
   };

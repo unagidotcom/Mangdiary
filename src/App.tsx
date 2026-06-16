@@ -105,6 +105,9 @@ type ShareableDream = {
 type ActiveDreamMatch = {
   id: string;
   score: number;
+  currentUserAnonymous: boolean;
+  otherUserAnonymous: boolean;
+  canReadTheirDream: boolean;
   otherProfile: {
     id: string;
     displayName: string;
@@ -1329,6 +1332,7 @@ function JournalApp({ user }: { user: User }) {
 
       const match = result.match;
       setActiveDreamMatch(match);
+      setShareAnonymously(match.currentUserAnonymous);
       setDreamMatchState("ready");
       await loadNotifications();
       return match;
@@ -1474,6 +1478,7 @@ function JournalApp({ user }: { user: User }) {
 
       setActiveCircleId(result.circleId);
       await markMatchNotificationsRead(matchToOpen.id);
+      await loadDreamMatch(matchToOpen.id);
       const messagesLoaded = await loadCircleMessages(result.circleId);
       if (!messagesLoaded) return;
       setCircleState("ready");
@@ -1869,7 +1874,8 @@ function JournalApp({ user }: { user: User }) {
           <DreamCircleChat
             yourDream={selectedShareDream}
             theirDream={matchedOtherDream}
-            anonymous={shareAnonymously}
+            currentUserAnonymous={activeDreamMatch?.currentUserAnonymous ?? shareAnonymously}
+            otherUserAnonymous={activeDreamMatch?.otherUserAnonymous ?? true}
             messages={chatMessages}
             draft={chatDraft}
             currentUserName={profileForm.display_name || profileForm.username || user.email?.split("@")[0] || "You"}
@@ -2592,7 +2598,8 @@ function ShareDreamOverlay({
 function DreamCircleChat({
   yourDream,
   theirDream,
-  anonymous,
+  currentUserAnonymous,
+  otherUserAnonymous,
   messages,
   draft,
   currentUserName,
@@ -2608,7 +2615,8 @@ function DreamCircleChat({
 }: {
   yourDream?: ShareableDream;
   theirDream?: ShareableDream;
-  anonymous: boolean;
+  currentUserAnonymous: boolean;
+  otherUserAnonymous: boolean;
   messages: ChatMessage[];
   draft: string;
   currentUserName: string;
@@ -2646,8 +2654,8 @@ function DreamCircleChat({
       <section className="pinned-dreams" aria-label="Shared dreams">
         <div className="pinned-label">Shared dreams</div>
         <div className="pinned-grid">
-          <PinnedDreamCard label={anonymous ? "Anonymous" : "Your dream"} dream={yourDream} />
-          <PinnedDreamCard label="Other dreamer" dream={theirDream} />
+          <PinnedDreamCard label={currentUserAnonymous ? "Anonymous" : "Your dream"} dream={yourDream} />
+          <PinnedDreamCard label={otherUserAnonymous ? "Anonymous dreamer" : "Other dreamer"} dream={theirDream} />
         </div>
       </section>
 
@@ -2657,7 +2665,8 @@ function DreamCircleChat({
         {messages.length === 0 && state !== "error" ? <p className="chat-empty">No messages yet.</p> : null}
         {messages.map((message) => {
           const sender = chatSenderFor(message.author, {
-            anonymous,
+            currentUserAnonymous,
+            otherUserAnonymous,
             currentUserName,
             currentUserAvatar,
             currentUserInitials,
@@ -2720,7 +2729,8 @@ function PinnedDreamCard({ label, dream }: { label: string; dream?: ShareableDre
 function chatSenderFor(
   author: ChatMessage["author"],
   context: {
-    anonymous: boolean;
+    currentUserAnonymous: boolean;
+    otherUserAnonymous: boolean;
     currentUserName: string;
     currentUserAvatar: string;
     currentUserInitials: string;
@@ -2730,17 +2740,17 @@ function chatSenderFor(
 ) {
   if (author === "you") {
     return {
-      name: context.anonymous ? "Anonymous" : context.currentUserName,
-      avatarUrl: context.anonymous ? "" : context.currentUserAvatar,
-      initials: context.anonymous ? "AN" : context.currentUserInitials,
+      name: context.currentUserAnonymous ? "Anonymous" : context.currentUserName,
+      avatarUrl: context.currentUserAnonymous ? "" : context.currentUserAvatar,
+      initials: context.currentUserAnonymous ? "AN" : context.currentUserInitials,
     };
   }
 
   if (author === "other") {
     return {
-      name: context.otherUserName,
-      avatarUrl: context.otherUserAvatar,
-      initials: initialsForName(context.otherUserName, "MD"),
+      name: context.otherUserAnonymous ? "Anonymous" : context.otherUserName,
+      avatarUrl: context.otherUserAnonymous ? "" : context.otherUserAvatar,
+      initials: context.otherUserAnonymous ? "AN" : initialsForName(context.otherUserName, "MD"),
     };
   }
 

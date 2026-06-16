@@ -25,6 +25,7 @@ type CircleRow = {
 
 type CircleMemberRow = {
   user_id: string;
+  alias?: string | null;
 };
 
 type ProfileRow = {
@@ -96,14 +97,17 @@ export default async function handler(request: VercelRequest, reply: VercelRespo
 
     }
 
-    const { error: memberError } = await supabase.from("circle_members").upsert(
-      [
-        { circle_id: circleId, user_id: user.id, alias: body.anonymous ? "Anonymous" : null },
-        { circle_id: circleId, user_id: otherUserId, alias: null },
-      ],
+    const { error: currentMemberError } = await supabase.from("circle_members").upsert(
+      { circle_id: circleId, user_id: user.id, alias: body.anonymous ? "Anonymous" : null },
       { onConflict: "circle_id,user_id" },
     );
-    if (memberError) return reply.status(500).json({ error: memberError.message });
+    if (currentMemberError) return reply.status(500).json({ error: currentMemberError.message });
+
+    const { error: otherMemberError } = await supabase.from("circle_members").upsert(
+      { circle_id: circleId, user_id: otherUserId },
+      { onConflict: "circle_id,user_id", ignoreDuplicates: true },
+    );
+    if (otherMemberError) return reply.status(500).json({ error: otherMemberError.message });
 
     const { error: pinnedError } = await supabase.from("circle_pinned_dreams").upsert(
       { circle_id: circleId, user_id: user.id, entry_id: body.entryId },
@@ -149,7 +153,7 @@ async function sendCircleMessage(
 
   const { data: senderMembership, error: senderMemberError } = await supabase
     .from("circle_members")
-    .select("user_id")
+    .select("user_id, alias")
     .eq("circle_id", body.circleId)
     .eq("user_id", userId)
     .is("left_at", null)
@@ -169,7 +173,7 @@ async function sendCircleMessage(
     .select("username, display_name")
     .eq("id", userId)
     .maybeSingle<ProfileRow>();
-  const senderName = profile?.display_name || profile?.username || "A dreamer";
+  const senderName = senderMembership.alias || profile?.display_name || profile?.username || "A dreamer";
 
   const { data: recipients, error: recipientsError } = await supabase
     .from("circle_members")
