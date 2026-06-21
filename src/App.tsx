@@ -49,6 +49,8 @@ const emptyInsight: EntryInsight = {
   cards: [],
 };
 
+const dreamChatEmojis = ["🌙", "✨", "🌀", "👁️", "💫", "🤯", "🌌", "🕯️", "🌊", "🔮", "💭", "😮", "🫧", "⭐", "🌸", "😶"];
+
 const draftKeyFor = (entryId: string) => `lumora-draft-${entryId}`;
 const welcomeSeenKey = "mangdiary-welcome-seen";
 
@@ -2657,6 +2659,9 @@ function DreamCircleChat({
   onDraftChange: (value: string) => void;
   onSend: () => void;
 }) {
+  const [dreamsOpen, setDreamsOpen] = useState(false);
+  const showTypingSignal = draft.trim().length > 0;
+
   return (
     <motion.section
       className="circle-chat-shell"
@@ -2679,11 +2684,17 @@ function DreamCircleChat({
       </header>
 
       <section className="pinned-dreams" aria-label="Shared dreams">
-        <div className="pinned-label">Shared dreams</div>
-        <div className="pinned-grid">
-          <PinnedDreamCard label={currentUserAnonymous ? "Anonymous" : "Your dream"} dream={yourDream} />
-          <PinnedDreamCard label={otherUserAnonymous ? "Anonymous dreamer" : "Other dreamer"} dream={theirDream} />
-        </div>
+        <button className="pinned-toggle" type="button" aria-expanded={dreamsOpen} onClick={() => setDreamsOpen((open) => !open)}>
+          <span>Shared dreams</span>
+          <small>{dreamsOpen ? "Hide dreams" : "Show dreams"}</small>
+          <ChevronDown />
+        </button>
+        {dreamsOpen ? (
+          <div className="pinned-grid">
+            <PinnedDreamCard label={currentUserAnonymous ? "Anonymous" : "Your dream"} dream={yourDream} />
+            <PinnedDreamCard label={otherUserAnonymous ? "Anonymous dreamer" : "Other dreamer"} dream={theirDream} />
+          </div>
+        ) : null}
       </section>
 
       <div className="chat-stream">
@@ -2715,9 +2726,31 @@ function DreamCircleChat({
             </div>
           );
         })}
+        {showTypingSignal ? (
+          <div className="chat-row other typing-row" aria-label="Typing indicator">
+            <div className="chat-sender">
+              <span className="chat-avatar" aria-hidden="true">
+                ...
+              </span>
+              <strong>Dream signal</strong>
+            </div>
+            <p className="typing-bubble" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <footer className="chat-composer">
+        <div className="emoji-tray" aria-label="Dream emoji tray">
+          {dreamChatEmojis.map((emoji) => (
+            <button key={emoji} type="button" onClick={() => onDraftChange(`${draft}${emoji}`)} aria-label={`Insert ${emoji}`}>
+              {emoji}
+            </button>
+          ))}
+        </div>
         <input
           value={draft}
           onChange={(event) => onDraftChange(event.target.value)}
