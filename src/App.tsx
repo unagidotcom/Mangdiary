@@ -24,6 +24,7 @@ import {
   Plus,
   Search,
   Send,
+  Share2,
   Sparkles,
   Star,
   Trash2,
@@ -129,6 +130,8 @@ type ActiveDreamMatch = {
 type CommandView = "archive" | "insights" | "analytics";
 
 type SocialStage = "none" | "consent" | "share" | "chat";
+
+type ArchiveShareState = "idle" | "sharing" | "error";
 
 type ChatMessage = {
   id: string;
@@ -761,6 +764,9 @@ function JournalApp({ user }: { user: User }) {
   const [circleError, setCircleError] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
+  const [archiveEntry, setArchiveEntry] = useState<JournalEntry | null>(null);
+  const [archiveShareState, setArchiveShareState] = useState<ArchiveShareState>("idle");
+  const [archiveShareError, setArchiveShareError] = useState("");
 
   useEffect(() => {
     const timer = window.setInterval(() => setAutoTheme(themeForTime()), 60_000);
@@ -1624,6 +1630,11 @@ function JournalApp({ user }: { user: User }) {
     localStorage.removeItem(draftKeyFor(target.id));
     setDeleteActionId(null);
     setIssue(null);
+    if (archiveEntry?.id === target.id) {
+      setArchiveEntry(null);
+      setArchiveShareState("idle");
+      setArchiveShareError("");
+    }
 
     const remaining = entries.filter((item) => item.id !== target.id);
     setEntries(remaining);
@@ -1871,9 +1882,70 @@ function JournalApp({ user }: { user: User }) {
     setProfileOpen(false);
   }
 
+  async function shareArchiveEntry(target: JournalEntry) {
+    setArchiveShareState("sharing");
+    setArchiveShareError("");
+
+    try {
+      const file = await buildDiaryShareFile(target);
+      const sharePayload = {
+        title: entryTitle(target),
+        text: `${entryTitle(target)} • ${longDate(target.entry_date)}`,
+        files: [file],
+      };
+
+      if (typeof navigator !== "undefined" && "share" in navigator && (!("canShare" in navigator) || navigator.canShare?.(sharePayload))) {
+        await navigator.share(sharePayload);
+      } else {
+        const downloadUrl = URL.createObjectURL(file);
+        const link = document.createElement("a");
+        link.href = downloadUrl;
+        link.download = file.name;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
+      }
+
+      setArchiveShareState("idle");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setArchiveShareState("idle");
+        return;
+      }
+      setArchiveShareState("error");
+      setArchiveShareError(error instanceof Error ? error.message : "This diary image could not be shared.");
+    }
+  }
+
   return (
     <main className={`app-shell theme-${theme}`}>
       <div className="paper-grain" />
+
+      <AnimatePresence>
+        {archiveEntry ? (
+          <OverlayLayer
+            className="diary-overlay"
+            onClose={() => {
+              setArchiveEntry(null);
+              setArchiveShareState("idle");
+              setArchiveShareError("");
+            }}
+          >
+            <ArchiveDiaryOverlay
+              entry={archiveEntry}
+              shareState={archiveShareState}
+              shareError={archiveShareError}
+              onClose={() => {
+                setArchiveEntry(null);
+                setArchiveShareState("idle");
+                setArchiveShareError("");
+              }}
+              onShare={() => void shareArchiveEntry(archiveEntry)}
+            />
+          </OverlayLayer>
+        ) : null}
+      </AnimatePresence>
 
       <AnimatePresence>
         {matchesOpen ? (
@@ -2006,7 +2078,13 @@ function JournalApp({ user }: { user: User }) {
                               setDeleteActionId(null);
                               return;
                             }
-                            applyEntry(item);
+                            if (item.entry_date === today) {
+                              applyEntry(item);
+                            } else {
+                              setArchiveEntry(item);
+                              setArchiveShareState("idle");
+                              setArchiveShareError("");
+                            }
                             setTimelineOpen(false);
                           }}
                         >
@@ -2014,14 +2092,6 @@ function JournalApp({ user }: { user: User }) {
                           <span>{entryTitle(item)}</span>
                           <time>{entryLabel(item, filteredEntries)}</time>
                           <small>{item.summary || item.content || "A quiet page"}</small>
-                        </button>
-                        <button
-                          className="timeline-more"
-                          type="button"
-                          onClick={() => revealDeleteAction(item.id)}
-                          aria-label="Entry actions"
-                        >
-                          <MoreVertical size={15} />
                         </button>
                         <button
                           className="timeline-delete"
@@ -2298,6 +2368,90 @@ function OverlayLayer({
         {children}
       </div>
     </motion.div>
+  );
+}
+
+function ArchiveDiaryOverlay({
+  entry,
+  shareState,
+  shareError,
+  onClose,
+  onShare,
+}: {
+  entry: JournalEntry;
+  shareState: ArchiveShareState;
+  shareError: string;
+  onClose: () => void;
+  onShare: () => void;
+}) {
+  return (
+    <motion.article
+      className="archive-reader"
+      initial={{ opacity: 0, y: 18, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 18, scale: 0.98 }}
+      transition={{ duration: 0.2 }}
+      aria-label={`Diary entry from ${longDate(entry.entry_date)}`}
+    >
+      <div className="archive-reader-head">
+        <div>
+          <span>Diary archive</span>
+          <h2>{entryTitle(entry)}</h2>
+          <small>{longDate(entry.entry_date)}</small>
+        </div>
+        <button className="icon-button archive-close" type="button" onClick={onClose} aria-label="Close diary entry">
+          <CloseIcon />
+        </button>
+      </div>
+
+      <div className="archive-reader-page">
+        <div className="archive-page-meta">
+          <span>Page saved</span>
+          <strong>{editedDateTime(entry.updated_at || entry.created_at, false)}</strong>
+        </div>
+        <div className="archive-page-paper">
+          <p>{entry.content.trim() || "This page was saved without text."}</p>
+        </div>
+        {entry.summary || entry.mood || (entry.themes || []).length ? (
+          <div className="archive-page-notes">
+            {entry.summary ? (
+              <section>
+                <span>Summary</span>
+                <p>{entry.summary}</p>
+              </section>
+            ) : null}
+            {entry.mood ? (
+              <section>
+                <span>Mood</span>
+                <p>{entry.mood}</p>
+              </section>
+            ) : null}
+            {(entry.themes || []).length ? (
+              <section>
+                <span>Themes</span>
+                <div className="archive-theme-list">
+                  {entry.themes.map((theme) => (
+                    <em key={theme}>{theme}</em>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="archive-reader-actions">
+        <div>
+          <strong>Share on socials</strong>
+          <small>Exports this page as a diary-note image.</small>
+        </div>
+        <button className="archive-share-button" type="button" onClick={onShare} disabled={shareState === "sharing"}>
+          <Share2 size={16} />
+          {shareState === "sharing" ? "Preparing image..." : "Share as image"}
+        </button>
+      </div>
+      {shareError ? <p className="archive-share-error">{shareError}</p> : null}
+    </motion.article>
   );
 }
 
@@ -3756,4 +3910,117 @@ function editedDateTime(value: string, includeSeconds: boolean) {
     minute: "2-digit",
     second: includeSeconds ? "2-digit" : undefined,
   }).format(new Date(value));
+}
+
+async function buildDiaryShareFile(entry: JournalEntry) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1200;
+  canvas.height = 1600;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Image export is unavailable in this browser.");
+
+  const background = context.createLinearGradient(0, 0, canvas.width, canvas.height);
+  background.addColorStop(0, "#f5ebd8");
+  background.addColorStop(0.55, "#efe1c7");
+  background.addColorStop(1, "#e7d5b5");
+  context.fillStyle = background;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  context.save();
+  context.globalAlpha = 0.08;
+  for (let index = 0; index < 18; index += 1) {
+    context.fillStyle = index % 2 === 0 ? "#7a5d36" : "#ffffff";
+    context.beginPath();
+    context.arc((index * 137) % canvas.width, (index * 91) % canvas.height, 220, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.restore();
+
+  context.fillStyle = "rgba(108, 78, 41, 0.12)";
+  for (let y = 260; y < canvas.height - 120; y += 72) {
+    context.fillRect(132, y, canvas.width - 220, 2);
+  }
+
+  context.fillStyle = "rgba(135, 79, 63, 0.18)";
+  context.fillRect(170, 130, 3, canvas.height - 250);
+
+  context.fillStyle = "#6b5030";
+  context.font = "600 34px Georgia, serif";
+  context.fillText("MangDiary", 124, 108);
+
+  context.fillStyle = "#2f2418";
+  context.font = "700 58px Georgia, serif";
+  drawWrappedText(context, entryTitle(entry), 124, 186, 952, 68, 2);
+
+  context.fillStyle = "#6a5642";
+  context.font = "500 28px Inter, Arial, sans-serif";
+  context.fillText(longDate(entry.entry_date), 124, 286);
+
+  context.fillStyle = "#3a2c20";
+  context.font = "400 36px Georgia, serif";
+  drawWrappedText(context, entry.content.trim() || "This page was saved without text.", 124, 392, 930, 58, 17);
+
+  context.fillStyle = "#765f48";
+  context.font = "500 24px Inter, Arial, sans-serif";
+  const footer = entry.summary?.trim() || "Private page from the archive";
+  drawWrappedText(context, footer, 124, 1456, 930, 38, 2);
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((result) => {
+      if (result) resolve(result);
+      else reject(new Error("Diary image export failed."));
+    }, "image/png");
+  });
+
+  return new File([blob], `mangdiary-diary-${entry.entry_date}.png`, { type: "image/png" });
+}
+
+function drawWrappedText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight: number,
+  maxLines: number,
+) {
+  const lines = wrapCanvasText(context, text.replace(/\s+/g, " ").trim(), maxWidth, maxLines);
+  lines.forEach((line, index) => {
+    context.fillText(line, x, y + index * lineHeight);
+  });
+}
+
+function wrapCanvasText(context: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number) {
+  const words = text.split(" ").filter(Boolean);
+  if (!words.length) return [""];
+
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (context.measureText(next).width <= maxWidth) {
+      current = next;
+      continue;
+    }
+
+    if (current) lines.push(current);
+    current = word;
+
+    if (lines.length === maxLines - 1) break;
+  }
+
+  if (lines.length < maxLines && current) {
+    lines.push(current);
+  }
+
+  if (lines.length === maxLines && words.join(" ") !== lines.join(" ")) {
+    let clipped = lines[maxLines - 1] || "";
+    while (clipped.length > 1 && context.measureText(`${clipped}...`).width > maxWidth) {
+      clipped = clipped.slice(0, -1);
+    }
+    lines[maxLines - 1] = `${clipped.trimEnd()}...`;
+  }
+
+  return lines.slice(0, maxLines);
 }
